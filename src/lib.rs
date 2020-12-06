@@ -3,18 +3,61 @@
 // /tmp/rs-test-of-$user/
 // /tmp/rs-test-of-$user/$crate_name-$N/
 // /tmp/rs-test-of-$user/$crate_name-current -> $crate_name-$N
-// /tmp/$root_dir/$base_name-$N/
+// /tmp/$root_Dir/$base_name-$N/
 // $max_N
+
+#![warn(clippy::all)]
 
 use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
+
+use once_cell::sync::Lazy;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink as symlink_dir;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_dir;
 
+static TESTDIR: Lazy<RwLock<Option<TestDir>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn with_global_testdir<F, R>(base: &str, count: NonZeroU8, func: F) -> R
+where
+    F: FnOnce(&TestDir) -> R,
+{
+    with_global_testdir_with_tmpdir_provider(base, count, func, std::env::temp_dir)
+}
+
+// Testable version of with_global_testdir()
+fn with_global_testdir_with_tmpdir_provider<F, R>(
+    base: &str,
+    count: NonZeroU8,
+    func: F,
+    provider: impl FnOnce() -> PathBuf,
+) -> R
+where
+    F: FnOnce(&TestDir) -> R,
+{
+    let mut ro_guard = TESTDIR.read().unwrap();
+    if ro_guard.is_none() {
+        std::mem::drop(ro_guard);
+        {
+            let mut rw_guard = TESTDIR.write().unwrap();
+            rw_guard.get_or_insert_with(|| {
+                TestDir::new_user_with_tmpdir_provider(base, count, provider)
+            });
+        }
+        ro_guard = TESTDIR.read().unwrap();
+    }
+    assert!(ro_guard.is_some());
+    match *ro_guard {
+        Some(ref test_dir) => func(test_dir),
+        None => panic!("Global TESTDIR is None"),
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct TestDir {
     inner: NumberedDir,
 }
@@ -68,8 +111,13 @@ impl TestDir {
     pub fn path(&self) -> &Path {
         self.inner.path()
     }
+
+    pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
+        self.inner.create_subdir(rel_path.as_ref())
+    }
 }
 
+#[derive(Clone, Debug)]
 pub struct NumberedDir {
     path: PathBuf,
 }
@@ -98,7 +146,8 @@ impl NumberedDir {
     // Limitation: number of conflicting dirs
     // Safety: user can freely escape
     // Performance: dozens of conflicts is fine, but don't do hundreds
-    pub fn subdir(&self, rel_path: &Path) -> PathBuf {
+    pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
+        let rel_path = rel_path.as_ref();
         assert!(rel_path.is_relative(), "not a relative path");
         let file_name = rel_path
             .file_name()
@@ -245,6 +294,70 @@ impl Iterator for NumberedEntryIter {
     }
 }
 
+// consider moving this into the macro?
+#[doc(hidden)]
+pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
+    for symbol in backtrace::Backtrace::new()
+        .frames()
+        .iter()
+        .rev()
+        .flat_map(|x| x.symbols())
+        .filter_map(|x| x.name())
+        .map(|x| x.to_string())
+    {
+        if let Some(symbol) = symbol.strip_prefix(module_path) {
+            if let Some(symbol) = symbol.strip_suffix("::{{closure}}") {
+                return symbol.to_string();
+            } else {
+                return symbol.to_string();
+            }
+        }
+    }
+    panic!("Cannot determine test name from backtrace");
+}
+
+// consider moving this into the macro?
+#[doc(hidden)]
+pub fn extract_test_name(module_path: &str) -> String {
+    let mut name = std::thread::current()
+        .name()
+        .expect("Test thread has no name, can not find test name")
+        .to_string();
+    if name == "main" {
+        name = extract_test_name_from_backtrace(module_path);
+    }
+    if let Some(tail) = name.rsplit("::").next() {
+        name = tail.to_string();
+    }
+    name
+}
+
+// testdir!() -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
+// testdir!(Scope::Function) -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
+// testdir!(Scope::Module) -> /tmp/rstest-of-me/crate/module/path/
+// testdir!("some/path/name") -> /tmp/rstest-of-me/some/path/name/
+// testdir!(Path::from("boo")) -> /tmp/rstest-of-me/boo/
+#[macro_export]
+macro_rules! testdir {
+    () => {{
+        // - get global TestDir instance
+        // - create new subdir based on path
+        let pkg_name = ::std::env!("CARGO_PKG_NAME");
+        let module_path = ::std::module_path!();
+        let test_name = ::testdir::extract_test_name(&module_path);
+        let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
+        // println!("macro pkg name: {}", pkg_name);
+        // println!("macro module: {}", module_path);
+        // println!("macro subdir: {}", subdir_path.display());
+        // println!("macro test name: {}", test_name);
+        ::testdir::with_global_testdir(
+            pkg_name,
+            ::std::num::NonZeroU8::new(8).unwrap(),
+            move |tdir| tdir.create_subdir(subdir_path),
+        )
+    }};
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,13 +429,24 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let dir = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
 
-        let sub = dir.subdir(Path::new("sub"));
+        let sub = dir.create_subdir(Path::new("sub"));
         assert_eq!(sub, dir.path().join("sub"));
         assert!(sub.is_dir());
 
-        let sub_0 = dir.subdir(Path::new("sub"));
+        let sub_0 = dir.create_subdir(Path::new("sub"));
         assert_eq!(sub_0, dir.path().join("sub-0"));
         assert!(sub_0.is_dir());
+    }
+
+    #[test]
+    fn test_numberd_subdir_nested() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+
+        let sub = dir.create_subdir(Path::new("one/two"));
+        assert_eq!(sub, dir.path().join("one/two"));
+        assert!(dir.path().join("one").is_dir());
+        assert!(dir.path().join("one").join("two").is_dir());
     }
 
     #[test]
@@ -355,5 +479,38 @@ mod tests {
         let root = format!("rstest-of-{}", whoami::username());
         assert_eq!(tdir.path(), parent.path().join(root).join("crate-0"));
         assert!(tdir.path().is_dir())
+    }
+
+    #[test]
+    fn test_with_global_testdir() {
+        let parent = tempfile::tempdir().unwrap();
+        let dir: PathBuf = with_global_testdir_with_tmpdir_provider(
+            "crate",
+            NonZeroU8::new(3).unwrap(),
+            |tdir: &TestDir| tdir.create_subdir("test_with_global_testdir"),
+            || parent.path().to_path_buf(),
+        );
+        let root = format!("rstest-of-{}", whoami::username());
+        let expected_path = parent
+            .path()
+            .join(&root)
+            .join("crate-0")
+            .join("test_with_global_testdir");
+        assert_eq!(dir, expected_path);
+        assert!(dir.is_dir());
+
+        let dir: PathBuf = with_global_testdir_with_tmpdir_provider(
+            "crate-name-already-initialised",
+            NonZeroU8::new(3).unwrap(),
+            |tdir: &TestDir| tdir.create_subdir("test_with_global_testdir"),
+            || parent.path().to_path_buf(),
+        );
+        let expected_path = parent
+            .path()
+            .join(&root)
+            .join("crate-0")
+            .join("test_with_global_testdir-0");
+        assert_eq!(dir, expected_path);
+        assert!(dir.is_dir());
     }
 }
