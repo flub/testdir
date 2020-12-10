@@ -6,7 +6,8 @@
 // /tmp/$root_Dir/$base_name-$N/
 // $max_N
 
-#![warn(clippy::all)]
+#![warn(missing_debug_implementations, clippy::all)]
+// #![warn(missing_docs)]
 
 use std::fs;
 use std::num::NonZeroU8;
@@ -20,6 +21,10 @@ use std::os::unix::fs::symlink as symlink_dir;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_dir;
 
+/// The number of test directories retained by the [`testdir`] macro.
+pub const KEEP_DEFAULT: Option<NonZeroU8> = NonZeroU8::new(8);
+
+/// The global [`TestDir`] instance used by the [`testdir`] macro.
 static TESTDIR: Lazy<RwLock<Option<TestDir>>> = Lazy::new(|| RwLock::new(None));
 
 pub fn with_global_testdir<F, R>(base: &str, count: NonZeroU8, func: F) -> R
@@ -144,7 +149,7 @@ impl NumberedDir {
 
     // Creates numbered suffixes if dir already exists
     // Limitation: number of conflicting dirs
-    // Safety: user can freely escape
+    // Safety: user can freely escape by using ../../somewhere/else
     // Performance: dozens of conflicts is fine, but don't do hundreds
     pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
         let rel_path = rel_path.as_ref();
@@ -152,22 +157,30 @@ impl NumberedDir {
         let file_name = rel_path
             .file_name()
             .expect("subdir does not end in a file_name");
-        let mut full_path = self.path.join(&rel_path);
 
+        if let Some(parent) = rel_path.parent() {
+            let parent_path = self.path.join(parent);
+            fs::create_dir_all(&parent_path).expect(&format!(
+                "Failed to create subdir parent: {}",
+                parent_path.display()
+            ));
+        }
+
+        let mut full_path = self.path.join(&rel_path);
         for i in 0..u16::MAX {
-            if full_path.exists() {
-                let mut new_file_name = file_name.to_os_string();
-                new_file_name.push(format!("-{}", i));
-                full_path.set_file_name(new_file_name);
+            match fs::create_dir(&full_path) {
+                Ok(_) => {
+                    return full_path;
+                }
+                Err(_) => {
+                    println!("Exists! {}", full_path.display());
+                    let mut new_file_name = file_name.to_os_string();
+                    new_file_name.push(format!("-{}", i));
+                    full_path.set_file_name(new_file_name);
+                }
             }
         }
-        if full_path.exists() {
-            panic!("subdir conflict: all filename alternatives exhausted");
-        }
-
-        fs::create_dir_all(&full_path)
-            .expect(&format!("Failed to create subdir {}", rel_path.display()));
-        full_path
+        panic!("subdir conflict: all filename alternatives exhausted");
     }
 }
 
@@ -333,28 +346,42 @@ pub fn extract_test_name(module_path: &str) -> String {
 }
 
 // testdir!() -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
-// testdir!(Scope::Function) -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
-// testdir!(Scope::Module) -> /tmp/rstest-of-me/crate/module/path/
+// testdir!(TestScope) -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
+// testdir!(ModuleScope) -> /tmp/rstest-of-me/crate/module/path/mod
 // testdir!("some/path/name") -> /tmp/rstest-of-me/some/path/name/
 // testdir!(Path::from("boo")) -> /tmp/rstest-of-me/boo/
 #[macro_export]
 macro_rules! testdir {
-    () => {{
-        // - get global TestDir instance
-        // - create new subdir based on path
+    () => {
+        testdir!(TestScope)
+    };
+    ( TestScope ) => {{
         let pkg_name = ::std::env!("CARGO_PKG_NAME");
         let module_path = ::std::module_path!();
-        let test_name = ::testdir::extract_test_name(&module_path);
+        let test_name = $crate::extract_test_name(&module_path);
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
         // println!("macro pkg name: {}", pkg_name);
         // println!("macro module: {}", module_path);
         // println!("macro subdir: {}", subdir_path.display());
         // println!("macro test name: {}", test_name);
-        ::testdir::with_global_testdir(
-            pkg_name,
-            ::std::num::NonZeroU8::new(8).unwrap(),
-            move |tdir| tdir.create_subdir(subdir_path),
-        )
+        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+            tdir.create_subdir(subdir_path)
+        })
+    }};
+    ( ModuleScope ) => {{
+        let pkg_name = ::std::env!("CARGO_PKG_NAME");
+        let module_path = ::std::module_path!();
+        let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join("mod");
+        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+            tdir.create_subdir(subdir_path)
+        })
+    }};
+    ( $e:expr ) => {{
+        let pkg_name = ::std::env!("CARGO_PKG_NAME");
+
+        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+            tdir.create_subdir($e)
+        })
     }};
 }
 
@@ -439,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_numberd_subdir_nested() {
+    fn test_numbered_subdir_nested() {
         let parent = tempfile::tempdir().unwrap();
         let dir = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
 

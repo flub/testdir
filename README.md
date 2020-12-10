@@ -1,7 +1,8 @@
 # Semi-persistent, scoped test directories
 
 This crate aims to make it easier to use temporary directories in
-tests.  The direcetories are structured per-scope and per-test and
+tests, primarily by calling the `testdir!()` macro somewhere in a test
+function.  The direcetories are structured per-scope and per-test and
 will be available for inspection after the test has finished.  On
 subsequent test runs older generations of test directories will be
 cleaned up.
@@ -17,7 +18,11 @@ By default test directories are created as:
 
 Here `$N` is an integer generation number increasing with each `cargo
 test` invocation.  Generations older than the 8 most recent ones are
-removed on the next `cargo test` run.
+removed on the next `cargo test` run.  Naturally `/tmp` is actually
+provided by
+[`std::env::temp_dir`](https://doc.rust-lang.org/std/env/fn.temp_dir.html)
+and `$USER` is also cross platform using the [whoami
+crate](https://crates.io/crates/whoami).
 
 There is also a symlink pointing to the most recent generation:
 ```

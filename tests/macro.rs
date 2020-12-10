@@ -1,9 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use once_cell::sync::Lazy;
 use testdir::testdir;
 
-static MOD_LEVEL: Lazy<PathBuf> = Lazy::new(|| testdir!());
+static MOD_LEVEL: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
 
 #[test]
 fn test_write() {
@@ -33,13 +33,50 @@ fn test_macro() {
     panic!("the end");
 }
 
+#[test]
+fn test_string() {
+    let val = testdir!("sub/dir");
+    println!("{}", val.display());
+    panic!("the end");
+}
+
+#[test]
+fn test_path() {
+    let val = testdir!(Path::new("sub/dir"));
+    println!("{}", val.display());
+    panic!("the end");
+}
+
+#[test]
+fn test_pathbuf() {
+    let val = testdir!(PathBuf::from("sub/dir"));
+    println!("{}", val.display());
+    panic!("the end");
+}
+
+#[test]
+fn test_varname() {
+    let path = Path::new("sub/dir");
+    let val = testdir!(path);
+    println!("{}", val.display());
+    panic!("the end");
+}
+
 mod submodule {
     use super::*;
 
+    static SUB_MOD: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
+
     #[test]
-    fn test_name() {
+    fn test_test_scope() {
         let val: PathBuf = testdir!();
         println!("{}", val.display());
+        panic!("the end");
+    }
+
+    #[test]
+    fn test_module_scope() {
+        println!("{}", SUB_MOD.display());
         panic!("the end");
     }
 }
