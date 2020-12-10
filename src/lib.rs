@@ -173,7 +173,6 @@ impl NumberedDir {
                     return full_path;
                 }
                 Err(_) => {
-                    println!("Exists! {}", full_path.display());
                     let mut new_file_name = file_name.to_os_string();
                     new_file_name.push(format!("-{}", i));
                     full_path.set_file_name(new_file_name);
