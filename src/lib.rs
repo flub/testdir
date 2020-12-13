@@ -1,10 +1,69 @@
-// /tmp/rs-test-of-flub/byte_pool-N/module/path/test_name/
-// /tmp/rs-test-of-flub/
-// /tmp/rs-test-of-$user/
-// /tmp/rs-test-of-$user/$crate_name-$N/
-// /tmp/rs-test-of-$user/$crate_name-current -> $crate_name-$N
-// /tmp/$root_Dir/$base_name-$N/
-// $max_N
+//! Semi-persistent, scoped test directories
+//!
+//! This module provides a convenient way to have an empty directory for tests which can be
+//! inspected after the test run in a predicatable location.  On subsequent test runs the
+//! directory trees of previous runs will be cleaned up to keep the total number of
+//! directories limited.
+//!
+//! # Quickstart
+//!
+//! ```no_run
+//! mod tests {
+//!     use std::path::PathBuf;
+//!     use testdir::testdir;
+//!
+//!     #[test]
+//!     fn test_write() {
+//!         let dir: PathBuf = testdir!();
+//!         let path = dir.join("hello.txt");
+//!         std::fs::write(&path, "hi there").ok();
+//!         assert!(path.exists());
+//!     }
+//!
+//!     #[test]
+//!     fn test_nonexisting() {
+//!         let dir: PathBuf = testdir!();
+//!         let path = dir.join("not-here.txt");
+//!         assert!(!path.exists());
+//!     }
+//! }
+//! # fn main() { }
+//! ````
+//!
+//! If it does not yet exist this will create a directory called `rstest-of-$USER` in you
+//! system's temporary directory.  Inside there you will find subdirectories named after
+//! your crate name and with a number suffix which increases each time your run the tests.
+//! There is also a `-current` suffix which symlinks to the most recent numbered directory.
+//!
+//! Inside the numbered directory you will find a directory structure resembling your
+//! crate's modules structure.  For example if the above tests are in `lib.rs` of a crate
+//! called `mycrate`, than on my UNIX system it looks like this:
+//!
+//! ```sh
+//! $ tree /tmp/rstest-of-flub/
+//! /tmp/rstest-of-flub/
+//! +- mycrate-0/
+//! |    +- mycrate/
+//! |         +- tests/
+//! |              +- test_nonexisting/
+//! |              +- test_write/
+//! |                   +- hello.txt
+//! +- testdir-current -> /tmp/rstest-of-flub/mycrate-0
+//! ```
+//!
+//! # Doc tests and Integration tests
+//!
+//! In order to re-use the same numbered test directories across [`testdir`] macro
+//! invocations we need to have somewhere to keep global state.  This is currently stored in
+//! a process-wide global.  However Cargo builds multiple test binaries in many situations,
+//! typically a project will have the main crate test binary, one for each integration test
+//! and one for each doctest.  The current implementation means each will get its own
+//! numbered directory and the `-current` link will only point to the last one.  This could
+//! be problematic if you have more test binaries than the number of numbered directories
+//! kept by the [`testdir`] macro.  If you hit this limit a simple work-around is to limit
+//! the test binaries you invoke if you need to inspect one of the tests.
+//!
+//! This should hopefully be fixed in the next version.
 
 #![warn(missing_debug_implementations, clippy::all)]
 // #![warn(missing_docs)]
