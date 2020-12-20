@@ -68,116 +68,277 @@
 #![warn(missing_debug_implementations, clippy::all)]
 // #![warn(missing_docs)]
 
+use std::ffi::{OsStr, OsString};
+use std::fmt;
 use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
+use std::str::FromStr;
+use std::sync::Arc;
 
-use once_cell::sync::Lazy;
+use heim::process::Pid;
+use once_cell::sync::{Lazy, OnceCell};
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink as symlink_dir;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_dir;
 
-/// The number of test directories retained by the [`testdir`] macro.
+/// Default to build the `root` for [`NumberedDirBuilder`] from: `testdir`.
+pub const ROOT_DEFAULT: &'static str = "testdir";
+
+/// The default number of test directories retained by [`NumberedDirbuilder`]: `8`.
 pub const KEEP_DEFAULT: Option<NonZeroU8> = NonZeroU8::new(8);
 
-/// The global [`TestDir`] instance used by the [`testdir`] macro.
-static TESTDIR: Lazy<RwLock<Option<TestDir>>> = Lazy::new(|| RwLock::new(None));
+/// The filename in which the [`testdir`] macro stores the Cargo PID.
+pub const CARGO_PID_FILE_NAME: &'static str = "cargo-pid";
 
-pub fn with_global_testdir<F, R>(base: &str, count: NonZeroU8, func: F) -> R
+/// The global [`NumberedDir`] instance used by the [`testdir`] macro.
+static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
+
+/// The global [`NumberedDirBuilder`] instance used by the [`testdir`] macro.
+///
+/// The [`testdir`] macro assumes it can initialise this, if you initialise it before
+/// calling this macro you can modify the [`NumberedDirBuilder`] used by the macro.
+pub static TESTDIR_BUILDER: OnceCell<NumberedDirBuilder> = OnceCell::new();
+
+/// Whether we are a cargo sub-process.
+static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
+
+/// Executes a function passing the global [`NumberedDir`] instance.
+///
+/// This is used by the [`testdir`] macrot to create subdirectories inside one global
+/// [`NumberedDir`] instance for each test using [`NumberedDir::subdir`].  You may use this
+/// for similar purposes.
+pub fn with_global_testdir<F, R>(builder: &NumberedDirBuilder, func: F) -> R
 where
-    F: FnOnce(&TestDir) -> R,
+    F: FnOnce(&NumberedDir) -> R,
 {
-    with_global_testdir_with_tmpdir_provider(base, count, func, std::env::temp_dir)
+    let test_dir = TESTDIR.get_or_init(|| builder.create());
+    func(test_dir)
 }
 
-// Testable version of with_global_testdir()
-fn with_global_testdir_with_tmpdir_provider<F, R>(
-    base: &str,
+/// Builder to create a [`NumberedDir`].
+///
+/// While you can use [`NumberedDir::new`] directly this provides functionality to specific
+/// ways of constructing and re-using the [`NumberedDir`].
+///
+/// Primarily this builder adds the concept of a **root**, a directory in which to create
+/// the [`NumberedDir`].  The concept of the **base** is the same as for [`NumberedDir`] and
+/// is the prefix of the name of the [`NumberedDir`], thus a prefix of `myprefix` would
+/// create directories numbered `myprefix-0`, `myprefix-1` etc.  Likewise the **count** is
+/// also the same concept as for [`NumberedDir`] and specifies the maximum number of
+/// numbered directories, older directories will be cleaned up.
+///
+/// # Configuring the builder
+///
+/// The basic constructor uses a *root* of `testdir-of-$USER` placed in the system's default
+/// temporary director location as per [`std::env::temp_dir`].  To customise the root you
+/// can use [`NumberdDirBuilder::root`] or [`NumberedDirBuilder::user_root].  The temporary
+/// directory provider can also be changed using [`NumberedDirBuilder::tmpdir_provider`].
+///
+/// If you simply want an absolute path as parent directory for the numbered directory use
+/// the [`NumberedDirBuilder::abs_root`] function.
+///
+/// # Creating the [`NumberedDir`]
+///
+/// The [`NumberedDirBuilder::create`] method will create a new [`NumberedDir`].  In some
+/// situations you may want to re-use a previous numbered directory which you can do using
+/// [`NumberedDirBuilder::create_or_reuse].
+///
+/// This is useful for example when running tests using `cargo test` and you want to use the
+/// same numbered directory for the unit, integration and doc tests even though they all run
+/// in different processes.  The [`NumberdedDirBuilder::create_or_reuse_cargo`] method does
+/// this by storing the process ID of the `cargo test` directory in the numbered directory
+/// and comparing that to the parent process ID of the current process.
+#[derive(Clone)]
+pub struct NumberedDirBuilder {
+    // The current absolute path of the parent directory.  The last component is the current
+    // root.  This is the parent directory in which we should create the NumberedDir.
+    parent: PathBuf,
+    // The base of the numbered dir, its name without the number suffix.
+    base: String,
+    // The number of numbered dirs to keep around **after** the new directory is created.
     count: NonZeroU8,
-    func: F,
-    provider: impl FnOnce() -> PathBuf,
-) -> R
-where
-    F: FnOnce(&TestDir) -> R,
-{
-    let mut ro_guard = TESTDIR.read().unwrap();
-    if ro_guard.is_none() {
-        std::mem::drop(ro_guard);
-        {
-            let mut rw_guard = TESTDIR.write().unwrap();
-            rw_guard.get_or_insert_with(|| {
-                TestDir::new_user_with_tmpdir_provider(base, count, provider)
-            });
-        }
-        ro_guard = TESTDIR.read().unwrap();
-    }
-    assert!(ro_guard.is_some());
-    match *ro_guard {
-        Some(ref test_dir) => func(test_dir),
-        None => panic!("Global TESTDIR is None"),
+    // Function to determine whether to re-use a numbered dir.
+    reuse_fn: Option<Arc<Box<dyn Fn(&Path) -> bool + Send + Sync>>>,
+}
+
+impl fmt::Debug for NumberedDirBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NumberedDirBuilder")
+            .field("parent", &self.parent)
+            .field("base", &self.base)
+            .field("count", &self.count)
+            .field("reusefn", &"<Fn(&Path) -> bool>")
+            .finish()
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct TestDir {
-    inner: NumberedDir,
-}
-
-impl TestDir {
-    // New in $tmp
-    pub fn new(root: &str, base: &str, count: NonZeroU8) -> Self {
-        Self::new_with_tmpdir_provider(root, base, count, std::env::temp_dir)
-    }
-
-    // Testable version of Self::new()
-    fn new_with_tmpdir_provider(
-        root: &str,
-        base: &str,
-        count: NonZeroU8,
-        provider: impl FnOnce() -> PathBuf,
-    ) -> Self {
-        let root_dir = provider().join(root);
-        Self::new_abs(root_dir, base, count)
-    }
-
-    // New in $tmp/rstest-of-$user/
-    pub fn new_user(base: &str, count: NonZeroU8) -> Self {
-        Self::new_user_with_tmpdir_provider(base, count, std::env::temp_dir)
-    }
-
-    // Testable version of Self::new_user()
-    fn new_user_with_tmpdir_provider(
-        base: &str,
-        count: NonZeroU8,
-        provider: impl FnOnce() -> PathBuf,
-    ) -> Self {
-        let root = format!("rstest-of-{}", whoami::username());
-        let root_dir = provider().join(root);
-        Self::new_abs(root_dir, base, count)
-    }
-
-    // New with absolute path
-    pub fn new_abs(root: impl AsRef<Path>, base: &str, count: NonZeroU8) -> Self {
-        if !root.as_ref().exists() {
-            fs::create_dir_all(root.as_ref()).expect("Failed to create root directory");
+impl NumberedDirBuilder {
+    /// Create a new builder for [`NumberedDir`].
+    ///
+    /// By default the *root* will be set to `testdir-of-$USER`. (using [`ROOT_DEFAULT`])
+    /// and the count will be set to `8` ([`KEEP_DEFAULT`]).
+    pub fn new(base: String) -> Self {
+        if base.contains('/') || base.contains('\\') {
+            panic!("base must not contain path separators");
         }
-        if !root.as_ref().is_dir() {
+        let root = format!("{}-of-{}", ROOT_DEFAULT, whoami::username());
+        Self {
+            parent: std::env::temp_dir().join(root),
+            base,
+            count: KEEP_DEFAULT.unwrap(),
+            reuse_fn: None,
+        }
+    }
+
+    /// Resets the *base*-name of the [`NumberedDir`].
+    pub fn base(&mut self, base: String) -> &mut Self {
+        self.base = base;
+        self
+    }
+
+    /// Sets a *root* in the system's temporary directory location.
+    ///
+    /// The [`NumberedDir`]'s parent will be the `root` subdirectory of the system's
+    /// default temporary directory location.
+    pub fn root(&mut self, root: impl Into<String>) -> &mut Self {
+        self.parent.set_file_name(root.into());
+        self
+    }
+
+    /// Sets a *root* with the username affixed.
+    ///
+    /// Like [`NumberedDirBuilder::root`] this sets a subdirectory of the system's default
+    /// temporary directory location as the parent direcotry for the [`NumberedDir`].
+    /// However it suffixes the username to the given `prefix` to use as *root*.
+    pub fn user_root(&mut self, prefix: &str) -> &mut Self {
+        let root = format!("{}{}", prefix, whoami::username());
+        self.parent.set_file_name(root);
+        self
+    }
+
+    /// Uses a different temporary direcotry to place the *root* into.
+    ///
+    /// By default [`std::env::temp_dir`] is used to get the system's temporary directory
+    /// location to place the *root* into.  This allows you to provide an alternate function
+    /// which will be called to get the location of the directory where *root* will be
+    /// placed.  You provider should probably return an absolute path but this is not
+    /// enforced.
+    pub fn tmpdir_provider(&mut self, provider: impl FnOnce() -> PathBuf) -> &mut Self {
+        let default_root = OsString::from_str(ROOT_DEFAULT).unwrap();
+        let root = self.parent.file_name().unwrap_or(&default_root);
+        self.parent = provider().join(root);
+        self
+    }
+
+    /// Sets the parent directory for the [`NumberedDir`].
+    ///
+    /// This does not follow the *root* concept anymore, instead it directly sets the full
+    /// path for the parent directory in which the [`NumberedDir`] will be created.  You
+    /// probably want this to be an absolute path but this is not enforced.
+    ///
+    /// Be aware that it is a requirement that the last component of the parent directory is
+    /// valid UTF-8.
+    pub fn set_parent(&mut self, path: PathBuf) -> &mut Self {
+        if path.file_name().and_then(|name| name.to_str()).is_none() {
+            panic!("Last component of parent is not UTF-8");
+        }
+        self.parent = path;
+        self
+    }
+
+    /// Sets the total number of [`NumberedDir`] directories to keep.
+    ///
+    /// If creating the new [`NumberedDir`] would exceed this number, older directories will
+    /// be removed.
+    pub fn count(&mut self, count: NonZeroU8) -> &mut Self {
+        self.count = count;
+        self
+    }
+
+    /// Enables [`NumberedDir`] re-use if `f` returns `true`.
+    ///
+    /// The provided function will be called with each existing numbered directory and if it
+    /// returns `true` this directory will be re-used instead of a new one being created.
+    pub fn reusefn<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(&Path) -> bool + Send + Sync + 'static,
+    {
+        self.reuse_fn = Some(Arc::new(Box::new(f)));
+        self
+    }
+
+    /// Disables any previous call to [`NumberedDirBuilder::reusefn`].
+    pub fn disable_reuse(&mut self) -> &mut Self {
+        self.reuse_fn = None;
+        self
+    }
+
+    /// Creates a new [`NumberedDir`] as configured.
+    pub fn create(&self) -> NumberedDir {
+        if !self.parent.exists() {
+            fs::create_dir_all(&self.parent).expect("Failed to create root directory");
+        }
+        if !self.parent.is_dir() {
             panic!("Path for root is not a directory");
         }
-        Self {
-            inner: NumberedDir::new(root, base, count),
+        if let Some(ref reuse_fn) = self.reuse_fn {
+            for entry in NumberedEntryIter::new(&self.parent, &self.base) {
+                let path = self.parent.join(&entry.name);
+                if reuse_fn(&path) {
+                    return NumberedDir {
+                        path: path.to_path_buf(),
+                    };
+                }
+            }
+        }
+        NumberedDir::new(&self.parent, &self.base, self.count)
+    }
+}
+
+/// Determines if a [`NumberedDir`] was created by the same cargo parent process.
+///
+/// Commands like `cargo test` run various tests in sub-processes (unittests, doctests,
+/// integration tests).  All of those subprocesses should re-use the same [`NumberedDir`].
+/// This function figures out whether the given directory is the correct one or not.
+#[doc(hidden)]
+pub fn __private_reuse_cargo(dir: &Path) -> bool {
+    let file_name = dir.join(CARGO_PID_FILE_NAME);
+    if let Ok(content) = fs::read_to_string(&file_name) {
+        if let Ok(read_cargo_pid) = content.parse::<Pid>() {
+            if let Some(cargo_pid) = *CARGO_PID {
+                return read_cargo_pid == cargo_pid;
+            }
         }
     }
+    false
+}
 
-    pub fn path(&self) -> &Path {
-        self.inner.path()
+/// Creates a file storing the Cargo PID if not yet present.
+#[doc(hidden)]
+pub fn __private_create_cargo_pid_file(dir: &Path) {
+    if let Some(cargo_pid) = *CARGO_PID {
+        let file_name = dir.join(CARGO_PID_FILE_NAME);
+        if !file_name.exists() {
+            fs::write(&file_name, cargo_pid.to_string()).expect("Failed to write Cargo PID");
+        }
     }
+}
 
-    pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
-        self.inner.create_subdir(rel_path.as_ref())
+/// Returns the process ID of our parent Cargo process.
+///
+/// If our parent process is not Cargo, `None` is returned.
+async fn cargo_pid() -> Option<Pid> {
+    let current = heim::process::current().await.ok()?;
+    let parent = current.parent().await.ok()?;
+    let parent_exe = parent.exe().await.ok()?;
+    let parent_file_name = parent_exe.file_name()?;
+    if parent_file_name == OsStr::new("cargo") {
+        None
+    } else {
+        Some(parent.pid())
     }
 }
 
@@ -303,20 +464,9 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Nu
 }
 
 fn current_entry_count(dir: impl AsRef<Path>, base: &str) -> Option<u16> {
-    let mut max: Option<u16> = None;
-    for entry in NumberedEntryIter::new(dir, base) {
-        match max {
-            Some(prev) => {
-                if entry.number > prev {
-                    max = Some(entry.number);
-                }
-            }
-            None => {
-                max = Some(entry.number);
-            }
-        }
-    }
-    max
+    NumberedEntryIter::new(dir, base)
+        .map(|entry| entry.number)
+        .max()
 }
 
 #[derive(Clone, Debug)]
@@ -424,31 +574,45 @@ macro_rules! testdir {
         testdir!(TestScope)
     };
     ( TestScope ) => {{
-        let pkg_name = ::std::env!("CARGO_PKG_NAME");
+        let builder = $crate::testdir_global_builder!();
         let module_path = ::std::module_path!();
         let test_name = $crate::extract_test_name(&module_path);
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
-        // println!("macro pkg name: {}", pkg_name);
-        // println!("macro module: {}", module_path);
-        // println!("macro subdir: {}", subdir_path.display());
-        // println!("macro test name: {}", test_name);
-        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+        $crate::with_global_testdir(builder, move |tdir| {
+            $crate::__private_create_cargo_pid_file(tdir.path());
             tdir.create_subdir(subdir_path)
         })
     }};
     ( ModuleScope ) => {{
-        let pkg_name = ::std::env!("CARGO_PKG_NAME");
+        let builder = $crate::testdir_global_builder!();
         let module_path = ::std::module_path!();
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join("mod");
-        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+        $crate::with_global_testdir(builder, move |tdir| {
+            $crate::__private_create_cargo_pid_file(tdir.path());
             tdir.create_subdir(subdir_path)
         })
     }};
     ( $e:expr ) => {{
-        let pkg_name = ::std::env!("CARGO_PKG_NAME");
-
-        $crate::with_global_testdir(pkg_name, $crate::KEEP_DEFAULT.unwrap(), move |tdir| {
+        let builder = $crate::testdir_global_builder!();
+        $crate::with_global_testdir(builder, move |tdir| {
+            $crate::__private_create_cargo_pid_file(tdir.path());
             tdir.create_subdir($e)
+        })
+    }};
+}
+
+/// Returns the global [`TESTDIR_BUILDER`].
+///
+/// This has to be in macro code as it needs to extract `CARGO_PKG_NAME` of the package in
+/// which this is called at build time.
+#[macro_export]
+macro_rules! testdir_global_builder {
+    () => {{
+        let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
+        $crate::TESTDIR_BUILDER.get_or_init(move || {
+            let mut builder = $crate::NumberedDirBuilder::new(pkg_name);
+            builder.reusefn($crate::__private_reuse_cargo);
+            builder
         })
     }};
 }
@@ -545,64 +709,105 @@ mod tests {
     }
 
     #[test]
-    fn test_testdir_abs() {
+    fn test_builder_create() {
         let parent = tempfile::tempdir().unwrap();
-        let root_dir = parent.path().join("root");
-        let tdir = TestDir::new_abs(&root_dir, "crate", NonZeroU8::new(3).unwrap());
-        assert_eq!(tdir.path(), root_dir.join("crate-0"));
-        assert!(tdir.path().is_dir());
+        let dir = NumberedDirBuilder::new(String::from("base"))
+            .tmpdir_provider(|| parent.path().to_path_buf())
+            .create();
+        assert!(dir.path().is_dir());
+        let root = dir
+            .path()
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy();
+        assert!(root.starts_with("testdir-of-"));
     }
 
     #[test]
-    fn test_testdir_new() {
+    fn test_builder_root() {
         let parent = tempfile::tempdir().unwrap();
-        let tdir =
-            TestDir::new_with_tmpdir_provider("me", "crate", NonZeroU8::new(3).unwrap(), || {
-                parent.path().to_path_buf()
-            });
-        assert_eq!(tdir.path(), parent.path().join("me").join("crate-0"));
-        assert!(tdir.path().is_dir())
+        let dir = NumberedDirBuilder::new(String::from("base"))
+            .tmpdir_provider(|| parent.path().to_path_buf())
+            .root("myroot")
+            .create();
+        assert!(dir.path().is_dir());
+        let root = parent.path().join("myroot");
+        assert_eq!(dir.path(), root.join("base-0"));
     }
 
     #[test]
-    fn test_testdir_new_user() {
+    fn test_builder_user_root() {
         let parent = tempfile::tempdir().unwrap();
-        let tdir =
-            TestDir::new_user_with_tmpdir_provider("crate", NonZeroU8::new(3).unwrap(), || {
-                parent.path().to_path_buf()
-            });
-        let root = format!("rstest-of-{}", whoami::username());
-        assert_eq!(tdir.path(), parent.path().join(root).join("crate-0"));
-        assert!(tdir.path().is_dir())
+        let dir = NumberedDirBuilder::new(String::from("base"))
+            .tmpdir_provider(|| parent.path().to_path_buf())
+            .root("myroot-")
+            .create();
+        assert!(dir.path().is_dir());
+        let root = dir
+            .path()
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy();
+        assert!(root.starts_with("myroot-"));
+    }
+
+    #[test]
+    fn test_builder_set_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path().join("myparent");
+        let dir = NumberedDirBuilder::new(String::from("base"))
+            .set_parent(parent.clone())
+            .create();
+        assert!(dir.path().is_dir());
+        assert_eq!(dir.path(), parent.join("base-0"));
+    }
+
+    #[test]
+    fn test_builder_count() {
+        let temp = tempfile::tempdir().unwrap();
+        let parent = temp.path();
+        let mut builder = NumberedDirBuilder::new(String::from("base"));
+        builder.tmpdir_provider(|| parent.to_path_buf());
+        builder.count(NonZeroU8::new(1).unwrap());
+
+        let dir0 = builder.create();
+        assert!(dir0.path().is_dir());
+
+        let dir1 = builder.create();
+        assert!(!dir0.path().is_dir());
+        assert!(dir1.path().is_dir());
     }
 
     #[test]
     fn test_with_global_testdir() {
         let parent = tempfile::tempdir().unwrap();
-        let dir: PathBuf = with_global_testdir_with_tmpdir_provider(
-            "crate",
-            NonZeroU8::new(3).unwrap(),
-            |tdir: &TestDir| tdir.create_subdir("test_with_global_testdir"),
-            || parent.path().to_path_buf(),
-        );
-        let root = format!("rstest-of-{}", whoami::username());
+        let mut builder = NumberedDirBuilder::new(String::from("crate"));
+        builder.tmpdir_provider(|| parent.path().to_path_buf());
+        builder.root("myroot");
+
+        let dir: PathBuf = with_global_testdir(&builder, |tdir: &NumberedDir| {
+            tdir.create_subdir("test_with_global_testdir")
+        });
         let expected_path = parent
             .path()
-            .join(&root)
+            .join("myroot")
             .join("crate-0")
             .join("test_with_global_testdir");
         assert_eq!(dir, expected_path);
         assert!(dir.is_dir());
 
-        let dir: PathBuf = with_global_testdir_with_tmpdir_provider(
-            "crate-name-already-initialised",
-            NonZeroU8::new(3).unwrap(),
-            |tdir: &TestDir| tdir.create_subdir("test_with_global_testdir"),
-            || parent.path().to_path_buf(),
-        );
+        builder.base(String::from("crate-name-already-initialised"));
+
+        let dir: PathBuf = with_global_testdir(&builder, |tdir: &NumberedDir| {
+            tdir.create_subdir("test_with_global_testdir")
+        });
         let expected_path = parent
             .path()
-            .join(&root)
+            .join("myroot")
             .join("crate-0")
             .join("test_with_global_testdir-0");
         assert_eq!(dir, expected_path);
