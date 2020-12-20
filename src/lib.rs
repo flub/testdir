@@ -242,29 +242,39 @@ impl NumberedDir {
     }
 }
 
+/// Remove obsolete numbered directories.
+///
+/// The [`NumberedDir`] is identified by the parent directory `dir` and its base name
+/// `base`.  It will retain a maximum number of `keep` directories starting from `current`.
+/// By setting `keep` to `0` it will remove all directories.
+///
+/// Any directories with higher numbers than `current` will be left alone as they are
+/// assumed to be created by concurrent processes creating the same numbered directories.
 fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u8) {
-    let oldest = current.wrapping_sub(keep as u16).wrapping_add(1);
+    let oldest_to_keep = current.wrapping_sub(keep as u16).wrapping_add(1);
+    let oldest_to_delete = current.wrapping_add(u16::MAX / 2);
+    assert!(oldest_to_keep != oldest_to_delete);
 
     for entry in NumberedEntryIter::new(&dir, base) {
-        if current > oldest {
-            if entry.number < oldest {
-                let path = dir.as_ref().join(entry.name);
-                fs::remove_dir_all(&path).expect(&format!("Failed to remove {}", path.display()));
-            }
-        } else {
-            // We wrapped around u32::MAX
-
-            // Avoid removing newly added entries by another process
-            let min_remove = current + u8::MAX as u16;
-
-            if min_remove < entry.number && entry.number < oldest {
-                let path = dir.as_ref().join(entry.name);
-                fs::remove_dir_all(&path).expect(&format!("Failed to remove {}", path.display()));
-            }
+        if (oldest_to_keep > oldest_to_delete
+            && (entry.number < oldest_to_keep && entry.number >= oldest_to_delete))
+            || (oldest_to_keep < oldest_to_delete
+                && (entry.number < oldest_to_keep || entry.number >= oldest_to_delete))
+        {
+            let path = dir.as_ref().join(entry.name);
+            fs::remove_dir_all(&path).expect(&format!("Failed to remove {}", path.display()));
         }
     }
 }
 
+/// Attempt to create the next numbered directory.
+///
+/// The directory will be placed in `dir` and its name composed of the `base` and
+/// `next_count`.  If this directory can not be created it is assumed another process
+/// created it already and the count is increased and tried again.  This is repeated maximum
+/// 16 times after which this gives up.
+///
+/// Once the directory is created the `-current` symlink is also created.
 fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> NumberedDir {
     let mut last_err = None;
     for _i in 0..16 {
