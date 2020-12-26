@@ -33,7 +33,7 @@ There is also a symlink pointing to the most recent generation:
 
 Even when executing this with `cargo test --jobs=1` these tests will
 pass as each gets their own unique directory:
-```
+```no_run
 // E.g. in lib.rs
 
 mod tests {

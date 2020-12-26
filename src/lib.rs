@@ -65,8 +65,7 @@
 //!
 //! This should hopefully be fixed in the next version.
 
-#![warn(missing_debug_implementations, clippy::all)]
-// #![warn(missing_docs)]
+#![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -330,24 +329,63 @@ pub fn __private_create_cargo_pid_file(dir: &Path) {
 /// Returns the process ID of our parent Cargo process.
 ///
 /// If our parent process is not Cargo, `None` is returned.
+//
+// ```
+// use testdir::testdir;
+//
+// let dir = testdir!("ham");
+// println!("dir {:}", dir.display());
+// let pidfile = dir.join("../cargo-pid");
+// assert!(pidfile.is_file());
+// ```
 async fn cargo_pid() -> Option<Pid> {
     let current = heim::process::current().await.ok()?;
     let parent = current.parent().await.ok()?;
     let parent_exe = parent.exe().await.ok()?;
     let parent_file_name = parent_exe.file_name()?;
     if parent_file_name == OsStr::new("cargo") {
-        None
-    } else {
         Some(parent.pid())
+    } else if parent_file_name == OsStr::new("rustdoc") {
+        let parent = parent.parent().await.ok()?;
+        let parent_exe = parent.exe().await.ok()?;
+        let parent_file_name = parent_exe.file_name()?;
+        if parent_file_name == OsStr::new("cargo") {
+            Some(parent.pid())
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 
+/// A sequentially numbered directory.
+///
+/// This struct represents a directory is a sequentially numbered list of directories.  It
+/// allows creating the next sequential directory safely across processes or threads without
+/// any coordination as well as cleanup of older directories.
+///
+/// The directory has a **parent** directory in which the numbered directory is created, as
+/// well as a **base** which is used as the directory name to which to affix the number.
 #[derive(Clone, Debug)]
 pub struct NumberedDir {
     path: PathBuf,
 }
 
 impl NumberedDir {
+    /// Creates the next sequential numbered directory.
+    ///
+    /// The directory will be created inside `parent` and will start with the name given in
+    /// `base` to which the next available number is suffixed.
+    ///
+    /// If there are concurrent directories being created this will retry incrementing the
+    /// number up to 16 times before giving up.
+    ///
+    /// The `count` specifies the total number of directories to leave in place, including
+    /// the newly created directory.  Other previous directories with all their files and
+    /// subdirectories are recursively removed.  Care is taken to avoid removing new
+    /// directories concurrently created by parallel invocations in other threads or
+    /// processes..
     pub fn new(parent: impl AsRef<Path>, base: &str, count: NonZeroU8) -> Self {
         if base.contains('/') || base.contains('\\') {
             panic!("base must not contain path separators");
@@ -363,14 +401,27 @@ impl NumberedDir {
         create_next_dir(&parent, base, next_count)
     }
 
+    /// Returns the path of this numbered directory instance.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    // Creates numbered suffixes if dir already exists
-    // Limitation: number of conflicting dirs
-    // Safety: user can freely escape by using ../../somewhere/else
-    // Performance: dozens of conflicts is fine, but don't do hundreds
+    /// Creates a new subdirecotry within this numbered directory.
+    ///
+    /// This function will always create a new subdirecotry, if such a directory already
+    /// exists the last component will get an incremental number suffix.
+    ///
+    /// # Limitations
+    ///
+    /// Only up to [`u16::MAX`] numbered suffixes are created so this is the maximum number
+    /// of "identically" named directories that can be created.  Creating so many
+    /// directories will become expensive however as the suffixes are linearly searched for
+    /// the next available suffix.  This is not meant for a high number of conflicting
+    /// subdirectories, if this is required ensure the `rel_path` passed in already avoids
+    /// conflicts.
+    ///
+    /// There is no particular safety from malicious input, the numbered directory can be
+    /// trivially escaped using the parent directory location: `../somewhere/else`.
     pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
         let rel_path = rel_path.as_ref();
         assert!(rel_path.is_relative(), "not a relative path");
@@ -549,7 +600,7 @@ pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
 
 // consider moving this into the macro?
 #[doc(hidden)]
-pub fn extract_test_name(module_path: &str) -> String {
+pub fn __private_extract_test_name(module_path: &str) -> String {
     let mut name = std::thread::current()
         .name()
         .expect("Test thread has no name, can not find test name")
@@ -563,11 +614,72 @@ pub fn extract_test_name(module_path: &str) -> String {
     name
 }
 
-// testdir!() -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
-// testdir!(TestScope) -> /tmp/rstest-of-me/crate/module/path/test_fn_name/
-// testdir!(ModuleScope) -> /tmp/rstest-of-me/crate/module/path/mod
-// testdir!("some/path/name") -> /tmp/rstest-of-me/some/path/name/
-// testdir!(Path::from("boo")) -> /tmp/rstest-of-me/boo/
+/// Creates a test directory at the requested scope.
+///
+/// This macro creates a new or re-uses an existing [`NumberedDir`] for the current user.
+/// It than creates the requested sub-directory within this [`NumberedDir`].  The path for
+/// this directory is returned as a [`PathBuf`].
+///
+/// For the typical `testdir!()` invocation in a test function this would result in
+/// `/tmp/testdir-of-$USER/$CARGO_PKG_NAME-$N/$CARGO_CRATE_NAME/module/path/to/test_function_name`.
+/// A symbolic link to the most recent [`NumberedDir`] is also created as
+/// `/tmp/testdir-of-$USER/$CARGO_PKG_NAME-current -> $CARGO_PKG_NAME-$N`.
+///
+/// **Reuse** of the [`NumberedDir`] is triggered when this process is being run as a
+/// subprocess of Cargo, as is typical when running `cargo test`.  In this case the same
+/// [`NumberedDir`] is re-used between all Cargo sub-processes, which means it is shared
+/// between unittests, integration tests and doctests of the same test run.
+///
+/// The path within the numbered directory is created based on the context and how it is
+/// invoked.  There are several ways to specify this:
+///
+/// * Directly provide the path using an expression, e.g. `testdir!("sub/dir").  This
+///   expression will be passed to [`NumberedDir::create_subdir`] and thus must evaluate to
+///   something which implements `AsRef<Path>`, e.g. a simple `"sub/dir"` can be used or
+///   something more advanced evaluating to a path, usually [`Path`] or [`PathBuf`].
+///
+/// * Use the scope of the current test function to create a unique and predictable
+///   directory: `testdir!(TestScope)`.  This is the default when invoked as without any
+///   arguments as well: `testdir!()`.  In this case the directory path will follow the crate
+///   name and module path, ending with the test function name.  This also works in
+///   integration and doctests.
+///
+/// * Use the scope of the current module: `testdir!(ModuleScope)`.  In this case the crate
+///   name and module path is used, but with an additional final `mod` component.
+///
+/// # Examples
+///
+/// Inside a test function you can use the shorthand:
+/// ```
+/// use std::path::PathBuf;
+/// use testdir::testdir;
+///
+/// let path0: PathBuf = testdir!();
+/// ```
+///
+/// This is the same as invoking:
+/// ```
+/// # use testdir::testdir;
+/// let path1 = testdir!(TestScope);
+/// ```
+/// These constructs can also be used in a doctest.
+///
+/// The module path is valid in any scope, so can be used together with [once_cell] (or
+/// [lazy_static]) to share a common directory between different tests.
+/// ```ignore
+/// use std::path::PathBuf;
+/// use once_cell::sync::Lazy;
+/// use testdir::testdir;
+///
+/// static TDIR: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
+///
+/// #[test]
+/// fn test_module_scope() {
+///     assert TDIR.ends_with("mod");
+/// }
+/// ```
+///
+/// [lazy_static]: https://docs.rs/lazy_static
 #[macro_export]
 macro_rules! testdir {
     () => {
@@ -576,7 +688,7 @@ macro_rules! testdir {
     ( TestScope ) => {{
         let builder = $crate::testdir_global_builder!();
         let module_path = ::std::module_path!();
-        let test_name = $crate::extract_test_name(&module_path);
+        let test_name = $crate::__private_extract_test_name(&module_path);
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
         $crate::with_global_testdir(builder, move |tdir| {
             $crate::__private_create_cargo_pid_file(tdir.path());
@@ -784,6 +896,8 @@ mod tests {
 
     #[test]
     fn test_with_global_testdir() {
+        // Be aware, this means we initialise the global and the testdir!() macro would race
+        // with this.
         let parent = tempfile::tempdir().unwrap();
         let mut builder = NumberedDirBuilder::new(String::from("crate"));
         builder.tmpdir_provider(|| parent.path().to_path_buf());
@@ -812,5 +926,11 @@ mod tests {
             .join("test_with_global_testdir-0");
         assert_eq!(dir, expected_path);
         assert!(dir.is_dir());
+    }
+
+    #[test]
+    fn test_cargo_pid() {
+        let val = smol::block_on(async { cargo_pid().await });
+        assert!(val.is_some());
     }
 }

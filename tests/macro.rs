@@ -63,6 +63,14 @@ fn test_varname() {
     assert!(val.ends_with("sub/dir2"));
 }
 
+#[test]
+fn test_cargo_pid_created() {
+    let root = testdir!("spam");
+    println!("{}", root.display());
+    let cargo_pid = root.join("../cargo-pid");
+    assert!(cargo_pid.is_file());
+}
+
 mod submodule {
     use super::*;
 
