@@ -50,20 +50,6 @@
 //! |                   +- hello.txt
 //! +- testdir-current -> /tmp/rstest-of-flub/mycrate-0
 //! ```
-//!
-//! # Doc tests and Integration tests
-//!
-//! In order to re-use the same numbered test directories across [`testdir`] macro
-//! invocations we need to have somewhere to keep global state.  This is currently stored in
-//! a process-wide global.  However Cargo builds multiple test binaries in many situations,
-//! typically a project will have the main crate test binary, one for each integration test
-//! and one for each doctest.  The current implementation means each will get its own
-//! numbered directory and the `-current` link will only point to the last one.  This could
-//! be problematic if you have more test binaries than the number of numbered directories
-//! kept by the [`testdir`] macro.  If you hit this limit a simple work-around is to limit
-//! the test binaries you invoke if you need to inspect one of the tests.
-//!
-//! This should hopefully be fixed in the next version.
 
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
@@ -86,10 +72,10 @@ use std::os::windows::fs::symlink_dir;
 /// Default to build the `root` for [`NumberedDirBuilder`] from: `testdir`.
 pub const ROOT_DEFAULT: &'static str = "testdir";
 
-/// The default number of test directories retained by [`NumberedDirbuilder`]: `8`.
+/// The default number of test directories retained by [`NumberedDirBuilder`]: `8`.
 pub const KEEP_DEFAULT: Option<NonZeroU8> = NonZeroU8::new(8);
 
-/// The filename in which the [`testdir`] macro stores the Cargo PID.
+/// The filename in which the [`testdir`] macro stores the Cargo PID: `cargo-pid`.
 pub const CARGO_PID_FILE_NAME: &'static str = "cargo-pid";
 
 /// The global [`NumberedDir`] instance used by the [`testdir`] macro.
@@ -106,9 +92,11 @@ static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_
 
 /// Executes a function passing the global [`NumberedDir`] instance.
 ///
-/// This is used by the [`testdir`] macrot to create subdirectories inside one global
-/// [`NumberedDir`] instance for each test using [`NumberedDir::subdir`].  You may use this
-/// for similar purposes.
+/// This is used by the [`testdir`] macro to create subdirectories inside one global
+/// [`NumberedDir`] instance for each test using [`NumberedDir::create_subdir`].  You may
+/// use this for similar purposes, but be aware that if this is invoked before the first
+/// call to [testdir], the supplied `builder` will override the one provided by the macro
+/// and will thus disable the [`NumberedDir`] re-use between cargo sub-processes.
 pub fn with_global_testdir<F, R>(builder: &NumberedDirBuilder, func: F) -> R
 where
     F: FnOnce(&NumberedDir) -> R,
@@ -133,23 +121,23 @@ where
 ///
 /// The basic constructor uses a *root* of `testdir-of-$USER` placed in the system's default
 /// temporary director location as per [`std::env::temp_dir`].  To customise the root you
-/// can use [`NumberdDirBuilder::root`] or [`NumberedDirBuilder::user_root].  The temporary
+/// can use [`NumberedDirBuilder::root`] or [`NumberedDirBuilder::user_root].  The temporary
 /// directory provider can also be changed using [`NumberedDirBuilder::tmpdir_provider`].
 ///
 /// If you simply want an absolute path as parent directory for the numbered directory use
-/// the [`NumberedDirBuilder::abs_root`] function.
+/// the [`NumberedDirBuilder::set_parent`] function.
+///
+/// Sometimes you may have some external condition which signals that an existing numbered
+/// directory should be re-used.  The [`NumberedDirBuilder::reusefn] can be used for this.
+/// This is useful for example when running tests using `cargo test` and you want to use the
+/// same numbered directory for the unit, integration and doc tests even though they all run
+/// in different processes.  The [`testdir`] macro does this by storing the process ID of
+/// the `cargo test` process in the numbered directory and comparing that to the parent
+/// process ID of the current process.
 ///
 /// # Creating the [`NumberedDir`]
 ///
-/// The [`NumberedDirBuilder::create`] method will create a new [`NumberedDir`].  In some
-/// situations you may want to re-use a previous numbered directory which you can do using
-/// [`NumberedDirBuilder::create_or_reuse].
-///
-/// This is useful for example when running tests using `cargo test` and you want to use the
-/// same numbered directory for the unit, integration and doc tests even though they all run
-/// in different processes.  The [`NumberdedDirBuilder::create_or_reuse_cargo`] method does
-/// this by storing the process ID of the `cargo test` directory in the numbered directory
-/// and comparing that to the parent process ID of the current process.
+/// The [`NumberedDirBuilder::create`] method will create a new [`NumberedDir`].
 #[derive(Clone)]
 pub struct NumberedDirBuilder {
     // The current absolute path of the parent directory.  The last component is the current
@@ -717,6 +705,7 @@ macro_rules! testdir {
 ///
 /// This has to be in macro code as it needs to extract `CARGO_PKG_NAME` of the package in
 /// which this is called at build time.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! testdir_global_builder {
     () => {{
