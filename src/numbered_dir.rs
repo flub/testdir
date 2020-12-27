@@ -17,7 +17,7 @@ use std::os::windows::fs::symlink_dir;
 ///
 /// The directory has a **parent** directory in which the numbered directory is created, as
 /// well as a **base** which is used as the directory name to which to affix the number.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NumberedDir {
     path: PathBuf,
     /// The **base**, could also be extracted from `path`, needs to remain consistent.
@@ -206,7 +206,9 @@ fn current_entry_count(dir: impl AsRef<Path>, base: &str) -> Option<u16> {
 /// base name.  It can be created using [`NumberedDir::iterate`].
 #[derive(Debug)]
 pub struct NumberedDirIter {
+    /// The **base** plus the hyphen of the [`NumberedDir`] we are iterating over.
     prefix: String,
+    /// Iterator of directory entries in which to look for our [`NumberedDir`] instances.
     readdir: fs::ReadDir,
 }
 
@@ -235,21 +237,20 @@ impl Iterator for NumberedDirIter {
             let os_name = dirent.file_name();
 
             // We only work with valid UTF-8 entry names, so skip any names which are not.
-            match os_name.to_str() {
-                Some(name) => match name.strip_prefix(&self.prefix) {
-                    Some(suffix) => match suffix.parse::<u16>() {
-                        Ok(count) => {
-                            return Some(NumberedDir {
-                                path: dirent.path(),
-                                base: name.to_string(),
-                                number: count,
-                            });
-                        }
-                        Err(_) => continue,
-                    },
-                    None => continue,
-                },
-                None => continue,
+            let count = os_name
+                .to_str()
+                .and_then(|name| name.strip_prefix(&self.prefix))
+                .and_then(|suffix| suffix.parse::<u16>().ok());
+            if let Some(count) = count {
+                return Some(NumberedDir {
+                    path: dirent.path(),
+                    base: self
+                        .prefix
+                        .strip_suffix('-')
+                        .unwrap_or(&self.prefix)
+                        .to_string(),
+                    number: count,
+                });
             }
         }
     }
@@ -344,5 +345,19 @@ mod tests {
         assert_eq!(sub, dir.path().join("one/two"));
         assert!(dir.path().join("one").is_dir());
         assert!(dir.path().join("one").join("two").is_dir());
+    }
+
+    #[test]
+    fn test_iter() {
+        let parent = tempfile::tempdir().unwrap();
+        fs::write(parent.path().join("oops"), "not a numbered dir").unwrap();
+
+        let dir0 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir1 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dirs = vec![dir0, dir1];
+
+        for numdir in NumberedDir::iterate(parent.path(), "base") {
+            assert!(dirs.contains(&numdir));
+        }
     }
 }
