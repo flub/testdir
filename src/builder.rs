@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::{NumberedDir, NumberedEntryIter, KEEP_DEFAULT, ROOT_DEFAULT};
+use crate::numbered_dir::NumberedEntryIter;
+use crate::{NumberedDir, KEEP_DEFAULT, ROOT_DEFAULT};
 
 /// Builder to create a [`NumberedDir`].
 ///
