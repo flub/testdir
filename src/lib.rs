@@ -65,7 +65,7 @@ mod testdir;
 pub mod private;
 
 pub use builder::NumberedDirBuilder;
-pub use numbered_dir::NumberedDir;
+pub use numbered_dir::{NumberedDir, NumberedDirIter};
 
 /// Default to build the `root` for [`NumberedDirBuilder`] and [`testdir!`] from: `testdir`.
 pub const ROOT_DEFAULT: &str = "testdir";

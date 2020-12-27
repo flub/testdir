@@ -19,7 +19,11 @@ use std::os::windows::fs::symlink_dir;
 /// well as a **base** which is used as the directory name to which to affix the number.
 #[derive(Clone, Debug)]
 pub struct NumberedDir {
-    pub(crate) path: PathBuf,
+    path: PathBuf,
+    /// The **base**, could also be extracted from `path`, needs to remain consistent.
+    base: String,
+    /// The number, could also be extracted from `path`, needs to remain consistent.
+    number: u16,
 }
 
 impl NumberedDir {
@@ -51,9 +55,32 @@ impl NumberedDir {
         create_next_dir(&parent, base, next_count)
     }
 
+    /// Returns an iterator over all [`NumberedDir`] entries in a parent directory.
+    ///
+    /// This iterator can be used to get access to existing [`NumberedDir`] directories
+    /// without creating a new one.
+    pub fn iterate(parent: impl AsRef<Path>, base: &str) -> NumberedDirIter {
+        NumberedDirIter::new(parent, base)
+    }
+
     /// Returns the path of this numbered directory instance.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Returns the **base** of this [`NumberedDir`] instance.
+    ///
+    /// The **base** is the name of the final [`NumberedDir::path`] component without the
+    /// numbered suffix.
+    pub fn base(&self) -> &str {
+        &self.base
+    }
+
+    /// Returns the number suffix of this [`NumberedDir`] instance.
+    ///
+    /// The number is the suffix of the final component of [`NumberedDir::path`].
+    pub fn number(&self) -> u16 {
+        self.number
     }
 
     /// Creates a new subdirecotry within this numbered directory.
@@ -116,15 +143,14 @@ fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u
     let oldest_to_delete = current.wrapping_add(u16::MAX / 2);
     assert!(oldest_to_keep != oldest_to_delete);
 
-    for entry in NumberedEntryIter::new(&dir, base) {
+    for numdir in NumberedDir::iterate(&dir, base) {
         if (oldest_to_keep > oldest_to_delete
-            && (entry.number < oldest_to_keep && entry.number >= oldest_to_delete))
+            && (numdir.number < oldest_to_keep && numdir.number >= oldest_to_delete))
             || (oldest_to_keep < oldest_to_delete
-                && (entry.number < oldest_to_keep || entry.number >= oldest_to_delete))
+                && (numdir.number < oldest_to_keep || numdir.number >= oldest_to_delete))
         {
-            let path = dir.as_ref().join(entry.name);
-            fs::remove_dir_all(&path)
-                .unwrap_or_else(|_| panic!("Failed to remove {}", path.display()));
+            fs::remove_dir_all(numdir.path())
+                .unwrap_or_else(|_| panic!("Failed to remove {}", numdir.path().display()));
         }
     }
 }
@@ -150,7 +176,11 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Nu
                 }
                 // Could be racing other processes, should not fail
                 symlink_dir(&path, &current).ok();
-                return NumberedDir { path };
+                return NumberedDir {
+                    path,
+                    base: base.to_string(),
+                    number: next_count,
+                };
             }
             Err(err) => {
                 next_count = next_count.wrapping_add(1);
@@ -165,25 +195,23 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Nu
 }
 
 fn current_entry_count(dir: impl AsRef<Path>, base: &str) -> Option<u16> {
-    NumberedEntryIter::new(dir, base)
+    NumberedDirIter::new(dir, base)
         .map(|entry| entry.number)
         .max()
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct NumberedEntry {
-    pub(crate) number: u16,
-    pub(crate) name: String,
-}
-
+/// Iterator of [`NumberedDir`] entries.
+///
+/// This will iterate over all [`NumberedDir`] entries in a parent directory with a given
+/// base name.  It can be created using [`NumberedDir::iterate`].
 #[derive(Debug)]
-pub(crate) struct NumberedEntryIter {
+pub struct NumberedDirIter {
     prefix: String,
     readdir: fs::ReadDir,
 }
 
-impl NumberedEntryIter {
-    pub(crate) fn new(dir: impl AsRef<Path>, base: &str) -> Self {
+impl NumberedDirIter {
+    fn new(dir: impl AsRef<Path>, base: &str) -> Self {
         Self {
             prefix: format!("{}-", base),
             readdir: dir
@@ -194,8 +222,8 @@ impl NumberedEntryIter {
     }
 }
 
-impl Iterator for NumberedEntryIter {
-    type Item = NumberedEntry;
+impl Iterator for NumberedDirIter {
+    type Item = NumberedDir;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -211,9 +239,10 @@ impl Iterator for NumberedEntryIter {
                 Some(name) => match name.strip_prefix(&self.prefix) {
                     Some(suffix) => match suffix.parse::<u16>() {
                         Ok(count) => {
-                            return Some(NumberedEntry {
+                            return Some(NumberedDir {
+                                path: dirent.path(),
+                                base: name.to_string(),
                                 number: count,
-                                name: name.to_string(),
                             });
                         }
                         Err(_) => continue,

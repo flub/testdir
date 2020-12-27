@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::numbered_dir::NumberedEntryIter;
 use crate::{NumberedDir, KEEP_DEFAULT, ROOT_DEFAULT};
 
 /// Builder to create a [`NumberedDir`].
@@ -180,10 +179,9 @@ impl NumberedDirBuilder {
             panic!("Path for root is not a directory");
         }
         if let Some(ref reuse_fn) = self.reuse_fn {
-            for entry in NumberedEntryIter::new(&self.parent, &self.base) {
-                let path = self.parent.join(&entry.name);
-                if reuse_fn(&path) {
-                    return NumberedDir { path };
+            for numdir in NumberedDir::iterate(&self.parent, &self.base) {
+                if reuse_fn(&numdir.path()) {
+                    return numdir;
                 }
             }
         }
