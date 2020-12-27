@@ -13,7 +13,7 @@ use heim::process::Pid;
 use once_cell::sync::Lazy;
 
 /// The filename in which we store the Cargo PID: `cargo-pid`.
-const CARGO_PID_FILE_NAME: &'static str = "cargo-pid";
+const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
 /// Whether we are a cargo sub-process.
 static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
@@ -56,6 +56,8 @@ async fn cargo_pid() -> Option<Pid> {
 /// Commands like `cargo test` run various tests in sub-processes (unittests, doctests,
 /// integration tests).  All of those subprocesses should re-use the same [`NumberedDir`].
 /// This function figures out whether the given directory is the correct one or not.
+///
+/// [`NumberedDir`]: crate::NumberedDir
 pub fn reuse_cargo(dir: &Path) -> bool {
     let file_name = dir.join(CARGO_PID_FILE_NAME);
     if let Ok(content) = fs::read_to_string(&file_name) {

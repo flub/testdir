@@ -54,6 +54,7 @@ pub struct NumberedDirBuilder {
     /// The number of numbered dirs to keep around **after** the new directory is created.
     count: NonZeroU8,
     /// Function to determine whether to re-use a numbered dir.
+    #[allow(clippy::clippy::type_complexity)]
     reuse_fn: Option<Arc<Box<dyn Fn(&Path) -> bool + Send + Sync>>>,
 }
 
@@ -181,9 +182,7 @@ impl NumberedDirBuilder {
             for entry in NumberedEntryIter::new(&self.parent, &self.base) {
                 let path = self.parent.join(&entry.name);
                 if reuse_fn(&path) {
-                    return NumberedDir {
-                        path: path.to_path_buf(),
-                    };
+                    return NumberedDir { path };
                 }
             }
         }

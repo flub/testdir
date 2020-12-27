@@ -68,6 +68,8 @@
 /// ```
 ///
 /// [lazy_static]: https://docs.rs/lazy_static
+/// [`NumberedDir`]: crate::NumberedDir
+/// [`PathBuf`]: std::path::PathBuf
 #[macro_export]
 macro_rules! testdir {
     () => {
@@ -109,6 +111,8 @@ macro_rules! testdir {
 /// assert!(path.is_dir());
 /// assert!(path.ends_with("some/subdir"));
 /// ```
+///
+/// [`NumberedDir`]: crate::NumberedDir
 #[macro_export]
 macro_rules! init_testdir {
     () => {{

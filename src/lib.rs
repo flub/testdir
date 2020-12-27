@@ -73,7 +73,7 @@ pub mod private;
 pub use builder::NumberedDirBuilder;
 
 /// Default to build the `root` for [`NumberedDirBuilder`] from: `testdir`.
-pub const ROOT_DEFAULT: &'static str = "testdir";
+pub const ROOT_DEFAULT: &str = "testdir";
 
 /// The default number of test directories retained by [`NumberedDirBuilder`]: `8`.
 pub const KEEP_DEFAULT: Option<NonZeroU8> = NonZeroU8::new(8);
@@ -86,7 +86,7 @@ pub static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
 
 /// Executes a function passing the global [`NumberedDir`] instance.
 ///
-/// This is used by the [`testdir`] macro to create subdirectories inside one global
+/// This is used by the [`testdir!`] macro to create subdirectories inside one global
 /// [`NumberedDir`] instance for each test using [`NumberedDir::create_subdir`].  You may
 /// use this for similar purposes.
 ///
@@ -189,10 +189,9 @@ impl NumberedDir {
 
         if let Some(parent) = rel_path.parent() {
             let parent_path = self.path.join(parent);
-            fs::create_dir_all(&parent_path).expect(&format!(
-                "Failed to create subdir parent: {}",
-                parent_path.display()
-            ));
+            fs::create_dir_all(&parent_path).unwrap_or_else(|_| {
+                panic!("Failed to create subdir parent: {}", parent_path.display())
+            });
         }
 
         let mut full_path = self.path.join(&rel_path);
@@ -232,7 +231,8 @@ fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u
                 && (entry.number < oldest_to_keep || entry.number >= oldest_to_delete))
         {
             let path = dir.as_ref().join(entry.name);
-            fs::remove_dir_all(&path).expect(&format!("Failed to remove {}", path.display()));
+            fs::remove_dir_all(&path)
+                .unwrap_or_else(|_| panic!("Failed to remove {}", path.display()));
         }
     }
 }
@@ -297,7 +297,7 @@ impl NumberedEntryIter {
             readdir: dir
                 .as_ref()
                 .read_dir()
-                .expect(&format!("Failed read_dir() on {}", dir.as_ref().display())),
+                .unwrap_or_else(|_| panic!("Failed read_dir() on {}", dir.as_ref().display())),
         }
     }
 }
