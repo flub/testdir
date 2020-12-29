@@ -86,8 +86,13 @@ pub static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
 /// [`NumberedDir`] instance for each test using [`NumberedDir::create_subdir`].  You may
 /// use this for similar purposes.
 ///
-/// Be aware that you should have called [`init_testdir`] before calling this so that the
+/// Be aware that you should have called [`init_testdir!`] before calling this so that the
 /// global testdir was initialised correctly.  Otherwise you will get a dummy testdir name.
+///
+/// # Panics
+///
+/// If there is not yet a global testdir initialised, see [`init_testdir!`], this could
+/// panic while initialising it.
 ///
 /// # Examples
 ///
@@ -95,7 +100,7 @@ pub static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
 /// use testdir::{init_testdir, with_testdir};
 ///
 /// init_testdir!();
-/// let path = with_testdir(|dir| dir.create_subdir("some/path"));
+/// let path = with_testdir(|dir| dir.create_subdir("some/path").unwrap());
 /// assert!(path.is_dir());
 /// assert!(path.ends_with("some/path"));
 /// ```
@@ -106,7 +111,7 @@ where
     let test_dir = TESTDIR.get_or_init(|| {
         let mut builder = NumberedDirBuilder::new(String::from("init_testdir-not-called"));
         builder.reusefn(private::reuse_cargo);
-        let testdir = builder.create();
+        let testdir = builder.create().expect("Failed to create testdir");
         private::create_cargo_pid_file(testdir.path());
         testdir
     });

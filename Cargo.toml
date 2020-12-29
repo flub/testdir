@@ -11,8 +11,8 @@ keywords = ["test", "temp", "temporary", "directory"]
 categories = ["development-tools::testing", "filesystem"]
 
 [dependencies]
+anyhow = "1.0"
 backtrace = "0.3.55"
-#heim-process = "0.1.1-beta.3"
 heim = { version = "0.1.0-beta.3", default-features = false, features = ["process"] }
 once_cell = "1.5.2"
 smol = "1.2"

@@ -9,6 +9,8 @@ use std::os::unix::fs::symlink as symlink_dir;
 #[cfg(windows)]
 use std::os::windows::fs::symlink_dir;
 
+use anyhow::{Context, Error, Result};
+
 /// A sequentially numbered directory.
 ///
 /// This struct represents a directory is a sequentially numbered list of directories.  It
@@ -40,14 +42,14 @@ impl NumberedDir {
     /// subdirectories are recursively removed.  Care is taken to avoid removing new
     /// directories concurrently created by parallel invocations in other threads or
     /// processes..
-    pub fn new(parent: impl AsRef<Path>, base: &str, count: NonZeroU8) -> Self {
+    pub fn create(parent: impl AsRef<Path>, base: &str, count: NonZeroU8) -> Result<Self> {
         if base.contains('/') || base.contains('\\') {
-            panic!("base must not contain path separators");
+            return Err(Error::msg("base must not contain path separators"));
         }
-        fs::create_dir_all(&parent).expect("Could not create parent");
+        fs::create_dir_all(&parent).context("Could not create parent")?;
         let next_count = match current_entry_count(&parent, base) {
             Some(current_count) => {
-                remove_obsolete_dirs(&parent, base, current_count, u8::from(count) - 1);
+                remove_obsolete_dirs(&parent, base, current_count, u8::from(count) - 1)?;
                 current_count.wrapping_add(1)
             }
             None => 0,
@@ -59,8 +61,8 @@ impl NumberedDir {
     ///
     /// This iterator can be used to get access to existing [`NumberedDir`] directories
     /// without creating a new one.
-    pub fn iterate(parent: impl AsRef<Path>, base: &str) -> NumberedDirIter {
-        NumberedDirIter::new(parent, base)
+    pub fn iterate(parent: impl AsRef<Path>, base: &str) -> Result<NumberedDirIter> {
+        NumberedDirIter::try_new(parent, base)
     }
 
     /// Returns the path of this numbered directory instance.
@@ -99,25 +101,33 @@ impl NumberedDir {
     ///
     /// There is no particular safety from malicious input, the numbered directory can be
     /// trivially escaped using the parent directory location: `../somewhere/else`.
-    pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> PathBuf {
+    pub fn create_subdir(&self, rel_path: impl AsRef<Path>) -> Result<PathBuf> {
         let rel_path = rel_path.as_ref();
-        assert!(rel_path.is_relative(), "not a relative path");
-        let file_name = rel_path
-            .file_name()
-            .expect("subdir does not end in a file_name");
+        if !rel_path.is_relative() {
+            return Err(Error::msg(format!(
+                "Not a relative path: {}",
+                rel_path.display()
+            )));
+        }
+        let file_name = rel_path.file_name().ok_or_else(|| {
+            Error::msg(format!(
+                "Subdir does not end in a filename: {}",
+                rel_path.display()
+            ))
+        })?;
 
         if let Some(parent) = rel_path.parent() {
             let parent_path = self.path.join(parent);
-            fs::create_dir_all(&parent_path).unwrap_or_else(|_| {
-                panic!("Failed to create subdir parent: {}", parent_path.display())
-            });
+            fs::create_dir_all(&parent_path).with_context(|| {
+                format!("Failed to create subdir parent: {}", parent_path.display())
+            })?;
         }
 
         let mut full_path = self.path.join(&rel_path);
         for i in 0..u16::MAX {
             match fs::create_dir(&full_path) {
                 Ok(_) => {
-                    return full_path;
+                    return Ok(full_path);
                 }
                 Err(_) => {
                     let mut new_file_name = file_name.to_os_string();
@@ -126,7 +136,9 @@ impl NumberedDir {
                 }
             }
         }
-        panic!("subdir conflict: all filename alternatives exhausted");
+        Err(Error::msg(
+            "subdir conflict: all filename alternatives exhausted",
+        ))
     }
 }
 
@@ -138,21 +150,23 @@ impl NumberedDir {
 ///
 /// Any directories with higher numbers than `current` will be left alone as they are
 /// assumed to be created by concurrent processes creating the same numbered directories.
-fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u8) {
+fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u8) -> Result<()> {
     let oldest_to_keep = current.wrapping_sub(keep as u16).wrapping_add(1);
     let oldest_to_delete = current.wrapping_add(u16::MAX / 2);
     assert!(oldest_to_keep != oldest_to_delete);
 
-    for numdir in NumberedDir::iterate(&dir, base) {
+    for numdir in NumberedDir::iterate(&dir, base)? {
         if (oldest_to_keep > oldest_to_delete
             && (numdir.number < oldest_to_keep && numdir.number >= oldest_to_delete))
             || (oldest_to_keep < oldest_to_delete
                 && (numdir.number < oldest_to_keep || numdir.number >= oldest_to_delete))
         {
             fs::remove_dir_all(numdir.path())
-                .unwrap_or_else(|_| panic!("Failed to remove {}", numdir.path().display()));
+                .with_context(|| format!("Failed to remove {}", numdir.path().display()))?;
         }
     }
+
+    Ok(())
 }
 
 /// Attempt to create the next numbered directory.
@@ -163,7 +177,7 @@ fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u
 /// 16 times after which this gives up.
 ///
 /// Once the directory is created the `-current` symlink is also created.
-fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> NumberedDir {
+fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Result<NumberedDir> {
     let mut last_err = None;
     for _i in 0..16 {
         let name = format!("{}-{}", base, next_count);
@@ -172,15 +186,17 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Nu
             Ok(_) => {
                 let current = dir.as_ref().join(format!("{}-current", base));
                 if current.exists() {
-                    fs::remove_file(&current).expect("Failed to remove previous current symlink");
+                    fs::remove_file(&current).with_context(|| {
+                        format!("Failed to remove obsolete {}-current symlink", base)
+                    })?;
                 }
                 // Could be racing other processes, should not fail
                 symlink_dir(&path, &current).ok();
-                return NumberedDir {
+                return Ok(NumberedDir {
                     path,
                     base: base.to_string(),
                     number: next_count,
-                };
+                });
             }
             Err(err) => {
                 next_count = next_count.wrapping_add(1);
@@ -188,14 +204,12 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Nu
             }
         }
     }
-    panic!(
-        "Failed to create numbered dir, last error: {}",
-        last_err.expect("no last error")
-    );
+    Err(Error::new(last_err.expect("no last error")).context("Failed to create numbered dir"))
 }
 
 fn current_entry_count(dir: impl AsRef<Path>, base: &str) -> Option<u16> {
-    NumberedDirIter::new(dir, base)
+    NumberedDirIter::try_new(dir, base)
+        .ok()?
         .map(|entry| entry.number)
         .max()
 }
@@ -213,14 +227,14 @@ pub struct NumberedDirIter {
 }
 
 impl NumberedDirIter {
-    fn new(dir: impl AsRef<Path>, base: &str) -> Self {
-        Self {
+    fn try_new(dir: impl AsRef<Path>, base: &str) -> Result<Self> {
+        Ok(Self {
             prefix: format!("{}-", base),
             readdir: dir
                 .as_ref()
                 .read_dir()
-                .unwrap_or_else(|_| panic!("Failed read_dir() on {}", dir.as_ref().display())),
-        }
+                .with_context(|| format!("Failed read_dir() on {}", dir.as_ref().display()))?,
+        })
     }
 }
 
@@ -263,7 +277,7 @@ mod tests {
     #[test]
     fn test_numbered_creation() {
         let parent = tempfile::tempdir().unwrap();
-        let dir_0 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_0 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_0.path(), parent.path().join("base-0"));
         assert!(dir_0.path().is_dir());
     }
@@ -272,29 +286,29 @@ mod tests {
     fn test_numberd_creation_multiple() {
         let parent = tempfile::tempdir().unwrap();
 
-        let dir_0 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_0 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_0.path(), parent.path().join("base-0"));
         assert!(dir_0.path().is_dir());
 
-        let dir_1 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_1 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_1.path(), parent.path().join("base-1"));
         assert!(dir_0.path().is_dir());
         assert!(dir_1.path().is_dir());
 
-        let dir_2 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_2 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_2.path(), parent.path().join("base-2"));
         assert!(dir_0.path().is_dir());
         assert!(dir_1.path().is_dir());
         assert!(dir_2.path().is_dir());
 
-        let dir_3 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_3 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_3.path(), parent.path().join("base-3"));
         assert!(!dir_0.path().exists());
         assert!(dir_1.path().is_dir());
         assert!(dir_2.path().is_dir());
         assert!(dir_3.path().is_dir());
 
-        let dir_4 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_4 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_4.path(), parent.path().join("base-4"));
         assert!(!dir_0.path().exists());
         assert!(!dir_1.path().exists());
@@ -306,14 +320,14 @@ mod tests {
     #[test]
     fn test_numbered_creation_current() {
         let parent = tempfile::tempdir().unwrap();
-        let dir_0 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_0 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_0.path(), parent.path().join("base-0"));
         assert!(dir_0.path().is_dir());
 
         let current = fs::read_link(parent.path().join("base-current")).unwrap();
         assert_eq!(dir_0.path(), current);
 
-        let dir_1 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir_1 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         assert_eq!(dir_1.path(), parent.path().join("base-1"));
         assert!(dir_0.path().is_dir());
         assert!(dir_1.path().is_dir());
@@ -325,13 +339,13 @@ mod tests {
     #[test]
     fn test_numbered_subdir() {
         let parent = tempfile::tempdir().unwrap();
-        let dir = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
 
-        let sub = dir.create_subdir(Path::new("sub"));
+        let sub = dir.create_subdir(Path::new("sub")).unwrap();
         assert_eq!(sub, dir.path().join("sub"));
         assert!(sub.is_dir());
 
-        let sub_0 = dir.create_subdir(Path::new("sub"));
+        let sub_0 = dir.create_subdir(Path::new("sub")).unwrap();
         assert_eq!(sub_0, dir.path().join("sub-0"));
         assert!(sub_0.is_dir());
     }
@@ -339,9 +353,9 @@ mod tests {
     #[test]
     fn test_numbered_subdir_nested() {
         let parent = tempfile::tempdir().unwrap();
-        let dir = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
 
-        let sub = dir.create_subdir(Path::new("one/two"));
+        let sub = dir.create_subdir(Path::new("one/two")).unwrap();
         assert_eq!(sub, dir.path().join("one/two"));
         assert!(dir.path().join("one").is_dir());
         assert!(dir.path().join("one").join("two").is_dir());
@@ -352,11 +366,11 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         fs::write(parent.path().join("oops"), "not a numbered dir").unwrap();
 
-        let dir0 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
-        let dir1 = NumberedDir::new(parent.path(), "base", NonZeroU8::new(3).unwrap());
+        let dir0 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
+        let dir1 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         let dirs = vec![dir0, dir1];
 
-        for numdir in NumberedDir::iterate(parent.path(), "base") {
+        for numdir in NumberedDir::iterate(parent.path(), "base").unwrap() {
             assert!(dirs.contains(&numdir));
         }
     }

@@ -35,6 +35,11 @@
 /// * Use the scope of the current module: `testdir!(ModuleScope)`.  In this case the crate
 ///   name and module path is used, but with an additional final `mod` component.
 ///
+/// # Panics
+///
+/// If there is any problem with creating the directories or cleaning up old ones this will
+/// panic.
+///
 /// # Examples
 ///
 /// Inside a test function you can use the shorthand:
@@ -54,7 +59,7 @@
 ///
 /// The module path is valid in any scope, so can be used together with [once_cell] (or
 /// [lazy_static]) to share a common directory between different tests.
-/// ```ignore
+/// ```
 /// use std::path::PathBuf;
 /// use once_cell::sync::Lazy;
 /// use testdir::testdir;
@@ -63,7 +68,7 @@
 ///
 /// #[test]
 /// fn test_module_scope() {
-///     assert TDIR.ends_with("mod");
+///     assert!(TDIR.ends_with("mod"));
 /// }
 /// ```
 ///
@@ -80,17 +85,26 @@ macro_rules! testdir {
         let module_path = ::std::module_path!();
         let test_name = $crate::private::extract_test_name(&module_path);
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
-        $crate::with_testdir(move |tdir| tdir.create_subdir(subdir_path))
+        $crate::with_testdir(move |tdir| {
+            tdir.create_subdir(subdir_path)
+                .expect("Failed to create test-scoped sub-directory")
+        })
     }};
     ( ModuleScope ) => {{
         $crate::init_testdir!();
         let module_path = ::std::module_path!();
         let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join("mod");
-        $crate::with_testdir(move |tdir| tdir.create_subdir(subdir_path))
+        $crate::with_testdir(move |tdir| {
+            tdir.create_subdir(subdir_path)
+                .expect("Failed to create module-scoped sub-directory")
+        })
     }};
     ( $e:expr ) => {{
         $crate::init_testdir!();
-        $crate::with_testdir(move |tdir| tdir.create_subdir($e))
+        $crate::with_testdir(move |tdir| {
+            tdir.create_subdir($e)
+                .expect("Failed to create sub-directory")
+        })
     }};
 }
 
@@ -107,7 +121,7 @@ macro_rules! testdir {
 /// use testdir::{init_testdir, with_testdir};
 ///
 /// init_testdir!();
-/// let path = with_testdir(|dir| dir.create_subdir("some/subdir"));
+/// let path = with_testdir(|dir| dir.create_subdir("some/subdir").unwrap());
 /// assert!(path.is_dir());
 /// assert!(path.ends_with("some/subdir"));
 /// ```
@@ -120,7 +134,7 @@ macro_rules! init_testdir {
             let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
             let mut builder = $crate::NumberedDirBuilder::new(pkg_name);
             builder.reusefn($crate::private::reuse_cargo);
-            let testdir = builder.create();
+            let testdir = builder.create().expect("Failed to create testdir");
             $crate::private::create_cargo_pid_file(testdir.path());
             testdir
         })

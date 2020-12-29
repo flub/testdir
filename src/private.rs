@@ -71,6 +71,10 @@ pub fn reuse_cargo(dir: &Path) -> bool {
 }
 
 /// Creates a file storing the Cargo PID if not yet present.
+///
+/// # Panics
+///
+/// If the PID file could not be created or written.
 pub fn create_cargo_pid_file(dir: &Path) {
     if let Some(cargo_pid) = *CARGO_PID {
         let file_name = dir.join(CARGO_PID_FILE_NAME);

@@ -8,12 +8,14 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use anyhow::{Context, Error, Result};
+
 use crate::{NumberedDir, KEEP_DEFAULT, ROOT_DEFAULT};
 
 /// Builder to create a [`NumberedDir`].
 ///
-/// While you can use [`NumberedDir::new`] directly this provides functionality to specific
-/// ways of constructing and re-using the [`NumberedDir`].
+/// While you can use [`NumberedDir::create`] directly this provides functionality to
+/// specific ways of constructing and re-using the [`NumberedDir`].
 ///
 /// Primarily this builder adds the concept of a **root**, a directory in which to create
 /// the [`NumberedDir`].  The concept of the **base** is the same as for [`NumberedDir`] and
@@ -171,21 +173,21 @@ impl NumberedDirBuilder {
     }
 
     /// Creates a new [`NumberedDir`] as configured.
-    pub fn create(&self) -> NumberedDir {
+    pub fn create(&self) -> Result<NumberedDir> {
         if !self.parent.exists() {
-            fs::create_dir_all(&self.parent).expect("Failed to create root directory");
+            fs::create_dir_all(&self.parent).context("Failed to create root directory")?;
         }
         if !self.parent.is_dir() {
-            panic!("Path for root is not a directory");
+            return Err(Error::msg("Path for root is not a directory"));
         }
         if let Some(ref reuse_fn) = self.reuse_fn {
-            for numdir in NumberedDir::iterate(&self.parent, &self.base) {
+            for numdir in NumberedDir::iterate(&self.parent, &self.base)? {
                 if reuse_fn(&numdir.path()) {
-                    return numdir;
+                    return Ok(numdir);
                 }
             }
         }
-        NumberedDir::new(&self.parent, &self.base, self.count)
+        NumberedDir::create(&self.parent, &self.base, self.count)
     }
 }
 
@@ -198,7 +200,8 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let dir = NumberedDirBuilder::new(String::from("base"))
             .tmpdir_provider(|| parent.path().to_path_buf())
-            .create();
+            .create()
+            .unwrap();
         assert!(dir.path().is_dir());
         let root = dir
             .path()
@@ -216,7 +219,8 @@ mod tests {
         let dir = NumberedDirBuilder::new(String::from("base"))
             .tmpdir_provider(|| parent.path().to_path_buf())
             .root("myroot")
-            .create();
+            .create()
+            .unwrap();
         assert!(dir.path().is_dir());
         let root = parent.path().join("myroot");
         assert_eq!(dir.path(), root.join("base-0"));
@@ -228,7 +232,8 @@ mod tests {
         let dir = NumberedDirBuilder::new(String::from("base"))
             .tmpdir_provider(|| parent.path().to_path_buf())
             .root("myroot-")
-            .create();
+            .create()
+            .unwrap();
         assert!(dir.path().is_dir());
         let root = dir
             .path()
@@ -246,7 +251,8 @@ mod tests {
         let parent = temp.path().join("myparent");
         let dir = NumberedDirBuilder::new(String::from("base"))
             .set_parent(parent.clone())
-            .create();
+            .create()
+            .unwrap();
         assert!(dir.path().is_dir());
         assert_eq!(dir.path(), parent.join("base-0"));
     }
@@ -259,10 +265,10 @@ mod tests {
         builder.tmpdir_provider(|| parent.to_path_buf());
         builder.count(NonZeroU8::new(1).unwrap());
 
-        let dir0 = builder.create();
+        let dir0 = builder.create().unwrap();
         assert!(dir0.path().is_dir());
 
-        let dir1 = builder.create();
+        let dir1 = builder.create().unwrap();
         assert!(!dir0.path().is_dir());
         assert!(dir1.path().is_dir());
     }

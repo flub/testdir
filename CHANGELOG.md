@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- Most of the public API now returns Results where appropriate instead
+  of panicking.  The macros keep panicing for convenience.
+
 ## v0.3.1
 
 ### Changes
