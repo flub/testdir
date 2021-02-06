@@ -23,7 +23,7 @@
 //!     #[test]
 //!     fn test_nonexisting() {
 //!         let dir: PathBuf = testdir!();
-//!         let path = dir.join("not-here.txt");
+//!         let path = dir.join("hello.txt");
 //!         assert!(!path.exists());
 //!     }
 //! }
