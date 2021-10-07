@@ -89,11 +89,6 @@ pub static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
 /// Be aware that you should have called [`init_testdir!`] before calling this so that the
 /// global testdir was initialised correctly.  Otherwise you will get a dummy testdir name.
 ///
-/// # Panics
-///
-/// If there is not yet a global testdir initialised, see [`init_testdir!`], this could
-/// panic while initialising it.
-///
 /// # Examples
 ///
 /// ```
