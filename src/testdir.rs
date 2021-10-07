@@ -4,14 +4,14 @@
 
 /// Creates a test directory at the requested scope.
 ///
-/// This macro creates a new or re-uses an existing [`NumberedDir`] for the current user.
-/// It than creates the requested sub-directory within this [`NumberedDir`].  The path for
-/// this directory is returned as a [`PathBuf`].
+/// This macro creates a new or re-uses an existing [`NumberedDir`] in the cargo target
+/// directory.  It than creates the requested sub-directory within this [`NumberedDir`].
+/// The path for this directory is returned as a [`PathBuf`].
 ///
 /// For the typical `testdir!()` invocation in a test function this would result in
-/// `/tmp/testdir-of-$USER/$CARGO_PKG_NAME-$N/$CARGO_CRATE_NAME/module/path/to/test_function_name`.
-/// A symbolic link to the most recent [`NumberedDir`] is also created as
-/// `/tmp/testdir-of-$USER/$CARGO_PKG_NAME-current -> $CARGO_PKG_NAME-$N`.
+/// `target/testdir-$N/$CARGO_CRATE_NAME/module/path/to/test_function_name1.  A symbolic
+/// link to the most recent [`NumberedDir`] is also created as `target/testdir-current ->
+/// testdir-$N`.
 ///
 /// **Reuse** of the [`NumberedDir`] is triggered when this process is being run as a
 /// subprocess of Cargo, as is typical when running `cargo test`.  In this case the same
@@ -21,11 +21,6 @@
 /// The path within the numbered directory is created based on the context and how it is
 /// invoked.  There are several ways to specify this:
 ///
-/// * Directly provide the path using an expression, e.g. `testdir!("sub/dir").  This
-///   expression will be passed to [`NumberedDir::create_subdir`] and thus must evaluate to
-///   something which implements `AsRef<Path>`, e.g. a simple `"sub/dir"` can be used or
-///   something more advanced evaluating to a path, usually [`Path`] or [`PathBuf`].
-///
 /// * Use the scope of the current test function to create a unique and predictable
 ///   directory: `testdir!(TestScope)`.  This is the default when invoked as without any
 ///   arguments as well: `testdir!()`.  In this case the directory path will follow the crate
@@ -34,6 +29,11 @@
 ///
 /// * Use the scope of the current module: `testdir!(ModuleScope)`.  In this case the crate
 ///   name and module path is used, but with an additional final `mod` component.
+///
+/// * Directly provide the path using an expression, e.g. `testdir!("sub/dir").  This
+///   expression will be passed to [`NumberedDir::create_subdir`] and thus must evaluate to
+///   something which implements `AsRef<Path>`, e.g. a simple `"sub/dir"` can be used or
+///   something more advanced evaluating to a path, usually [`Path`] or [`PathBuf`].
 ///
 /// # Panics
 ///
@@ -111,9 +111,8 @@ macro_rules! testdir {
 /// Initialises the global [`NumberedDir`] used by the [`testdir`] macro.
 ///
 /// This macro is implicitly called by the [`testdir`] macro to initialise the global
-/// [`NumberedDir`] instance with a **base** of the Cargo package name calling the macro.
-/// It must be called before any call to [`with_testdir`](crate::with_testdir) to ensure
-/// this is initialised.
+/// [`NumberedDir`] instance inside the cargo target directory.  It must be called before
+/// any call to [`with_testdir`](crate::with_testdir) to ensure this is initialised.
 ///
 /// # Examples
 ///
@@ -131,8 +130,12 @@ macro_rules! testdir {
 macro_rules! init_testdir {
     () => {{
         $crate::TESTDIR.get_or_init(move || {
+            let metadata = ::cargo_metadata::MetadataCommand::new()
+                .exec()
+                .expect("cargo metadata failed");
             let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
             let mut builder = $crate::NumberedDirBuilder::new(pkg_name);
+            builder.set_parent(metadata.target_directory.into());
             builder.reusefn($crate::private::reuse_cargo);
             let testdir = builder.create().expect("Failed to create testdir");
             $crate::private::create_cargo_pid_file(testdir.path());

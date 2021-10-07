@@ -13,6 +13,7 @@ categories = ["development-tools::testing", "filesystem"]
 [dependencies]
 anyhow = "1"
 backtrace = "0.3.55"
+cargo_metadata = "0.14.0"
 heim = { version = "0.1.0-rc.1", default-features = false, features = ["process"] }
 once_cell = "1.5"
 smol = "1"

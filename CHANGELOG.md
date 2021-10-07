@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.0
+
+### Changes
+
+- The default location for `testdir!()` is now in the cargo target
+  directory instead of the system-provided temporary directory.
+
 ## v0.4.0
 
 ### Changes

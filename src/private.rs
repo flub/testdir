@@ -2,7 +2,7 @@
 //!
 //! This module is public, yet it contains some private functions.  This is to enable the
 //! macros to function correctly without running into various dependency problems etc.  If
-//! you do discover this module do please do refrain from using it directly, there is no API
+//! you do discover this module please do refrain from using it directly, there is no API
 //! stability and this will violate semvers.
 
 use std::ffi::OsStr;

@@ -30,25 +30,24 @@
 //! # fn main() { }
 //! ````
 //!
-//! If it does not yet exist this will create a directory called `rstest-of-$USER` in you
-//! system's temporary directory.  Inside there you will find subdirectories named after
-//! your crate name and with a number suffix which increases each time your run the tests.
-//! There is also a `-current` suffix which symlinks to the most recent numbered directory.
+//! For each `cargo test` invocation this will create a directory named `testdir-$N` in the
+//! cargo target directory.  The number suffix will increase each time you run the tests and
+//! a `testdir-current` symlink is created to the most recent suffix created.  Only the 8
+//! most recent directories are kept so that this does not keep growing forever.
 //!
 //! Inside the numbered directory you will find a directory structure resembling your
 //! crate's modules structure.  For example if the above tests are in `lib.rs` of a crate
 //! called `mycrate`, than on my UNIX system it looks like this:
 //!
 //! ```sh
-//! $ tree /tmp/rstest-of-flub/
-//! /tmp/rstest-of-flub/
-//! +- mycrate-0/
-//! |    +- mycrate/
-//! |         +- tests/
-//! |              +- test_nonexisting/
-//! |              +- test_write/
-//! |                   +- hello.txt
-//! +- testdir-current -> /tmp/rstest-of-flub/mycrate-0
+//! $ tree target/
+//! target/
+//! +- testdir-0/
+//! |   +- tests/
+//! |        +- test_nonexisting/
+//! |        +- test_write/
+//! |             +- hello.txt
+//! +- testdir-current -> testdir-0
 //! ```
 
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
