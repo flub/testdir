@@ -11,22 +11,18 @@ If you've ever used [pytest's `tmp_path` or `tmpdir`
 fixtures](https://docs.pytest.org/en/stable/reference.html#tmp-path)
 this pattern should be similar.
 
-By default test directories are created as:
+By default test directories are created in cargo's target directory:
 ```
-/tmp/rstest-of-$USER/$cargo_pkg_name-$N/module/path/test_name
+target/testdir-$N/module/path/test_name
 ```
 
 Here `$N` is an integer generation number increasing with each `cargo
 test` invocation.  Generations older than the 8 most recent ones are
-removed on the next `cargo test` run.  Naturally `/tmp` is actually
-provided by
-[`std::env::temp_dir`](https://doc.rust-lang.org/std/env/fn.temp_dir.html)
-and `$USER` is also cross platform using the [whoami
-crate](https://crates.io/crates/whoami).
+removed on the next `cargo test` run.
 
 There is also a symlink pointing to the most recent generation:
 ```
-/tmp/rstest-of-$USER/$cargo_pkg_name-current -> $cargo_pkg_name_$N`
+target/testdir-current -> testdir-$N`
 ```
 
 ## Example
@@ -60,15 +56,15 @@ mod tests {
 Afterwards you can inspect the directories and they should look
 something like this:
 ```sh
-$ tree /tmp/rstest-of-flub/
-/tmp/rstest-of-flub/
-+- cargo-pkg-name-0
+$ tree target/
+target/
++- testdir-0
 |    +- cratename
 |         +- tests
 |              +- test_read
 |              +- test_write
 |                   +- hello.txt
-+- testdir-current -> /tmp/rstest-of-flub/cargo-pkg-name-0
++- testdir-current -> testdir-0
 ```
 
 ## Feedback and contributing

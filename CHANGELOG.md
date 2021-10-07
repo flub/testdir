@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.1
+
+### Changes
+
+- Updated the README.
+
 ## v0.5.0
 
 ### Changes
