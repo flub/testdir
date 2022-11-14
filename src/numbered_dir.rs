@@ -123,7 +123,7 @@ impl NumberedDir {
             })?;
         }
 
-        let mut full_path = self.path.join(&rel_path);
+        let mut full_path = self.path.join(rel_path);
         for i in 0..u16::MAX {
             match fs::create_dir(&full_path) {
                 Ok(_) => {

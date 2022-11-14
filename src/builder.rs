@@ -56,7 +56,7 @@ pub struct NumberedDirBuilder {
     /// The number of numbered dirs to keep around **after** the new directory is created.
     count: NonZeroU8,
     /// Function to determine whether to re-use a numbered dir.
-    #[allow(clippy::clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     reuse_fn: Option<Arc<Box<dyn Fn(&Path) -> bool + Send + Sync>>>,
 }
 
@@ -182,7 +182,7 @@ impl NumberedDirBuilder {
         }
         if let Some(ref reuse_fn) = self.reuse_fn {
             for numdir in NumberedDir::iterate(&self.parent, &self.base)? {
-                if reuse_fn(&numdir.path()) {
+                if reuse_fn(numdir.path()) {
                     return Ok(numdir);
                 }
             }
