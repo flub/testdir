@@ -130,7 +130,7 @@ macro_rules! testdir {
 macro_rules! init_testdir {
     () => {{
         $crate::TESTDIR.get_or_init(move || {
-            let metadata = ::cargo_metadata::MetadataCommand::new()
+            let metadata = $crate::private::cargo_metadata::MetadataCommand::new()
                 .exec()
                 .expect("cargo metadata failed");
             let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));

@@ -14,6 +14,8 @@ use once_cell::sync::Lazy;
 use psutil::process::Process;
 use psutil::Pid;
 
+pub use cargo_metadata;
+
 /// The filename in which we store the Cargo PID: `cargo-pid`.
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
