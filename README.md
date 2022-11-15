@@ -69,14 +69,6 @@ target/
 
 ## Feedback and contributing
 
-The code lives in a mercurial repository at
-https://hg.sr.ht/~/flub/testdir from which you can clone the
-repository.
-
-For any feedback, bug reports or patches please send an email to
-[~flub/testdir@lists.sr.ht](mailto:~flub/testdir@lists.sr.ht) (or use
-[u.flub.testdir@lists.sr.ht](mailto:u.flub.testdir@lists.sr.ht) if
-your mail client does not accept the former).
-
-The mailing list archive can be browsed at
-[https://lists.sr.ht/~flub/testdir](https://lists.sr.ht/~flub/testdir).
+The code lives in a git repository at https://github.com/flub/testdir
+from which you can create issues, clone the repository and create pull
+requests.
