@@ -9,14 +9,17 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
-use heim::process::Pid;
+// use heim::process::Pid;
 use once_cell::sync::Lazy;
+use psutil::process::Process;
+use psutil::Pid;
 
 /// The filename in which we store the Cargo PID: `cargo-pid`.
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
 /// Whether we are a cargo sub-process.
-static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
+// static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
+static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| cargo_pid());
 
 /// Returns the process ID of our parent Cargo process.
 ///
@@ -30,16 +33,16 @@ static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_
 // let pidfile = dir.join("../cargo-pid");
 // assert!(pidfile.is_file());
 // ```
-async fn cargo_pid() -> Option<Pid> {
-    let current = heim::process::current().await.ok()?;
-    let parent = current.parent().await.ok()?;
-    let parent_exe = parent.exe().await.ok()?;
+fn cargo_pid() -> Option<Pid> {
+    let current = Process::current().ok()?;
+    let parent = current.parent().ok()??;
+    let parent_exe = parent.exe().ok()?;
     let parent_file_name = parent_exe.file_name()?;
     if parent_file_name == OsStr::new("cargo") {
         Some(parent.pid())
     } else if parent_file_name == OsStr::new("rustdoc") {
-        let parent = parent.parent().await.ok()?;
-        let parent_exe = parent.exe().await.ok()?;
+        let parent = parent.parent().ok()??;
+        let parent_exe = parent.exe().ok()?;
         let parent_file_name = parent_exe.file_name()?;
         if parent_file_name == OsStr::new("cargo") {
             Some(parent.pid())
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_cargo_pid() {
-        let val = smol::block_on(async { cargo_pid().await });
+        let val = cargo_pid();
         assert!(val.is_some());
     }
 }
