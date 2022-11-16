@@ -21,7 +21,7 @@ const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
 /// Whether we are a cargo sub-process.
 // static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
-static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| cargo_pid());
+static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
 
 /// Returns the process ID of our parent Cargo process.
 ///
