@@ -133,8 +133,9 @@ macro_rules! init_testdir {
             let metadata = $crate::private::cargo_metadata::MetadataCommand::new()
                 .exec()
                 .expect("cargo metadata failed");
-            let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
-            let mut builder = $crate::NumberedDirBuilder::new(pkg_name);
+            // let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
+            let pkg_name = "testdir";
+            let mut builder = $crate::NumberedDirBuilder::new(pkg_name.to_string());
             builder.set_parent(metadata.target_directory.into());
             builder.reusefn($crate::private::reuse_cargo);
             let testdir = builder.create().expect("Failed to create testdir");
