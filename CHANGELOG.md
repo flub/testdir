@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.0
+
+- Migrated dependecy to get ppid and executable names from heim to
+  psutil.
+- Updated to edition 2021.
+- Migrate to github.
+- Fix bug for cargo_metadata dependency in macro.
+- Always use "testdir" as basename instead of the package name since
+  the tempdir is now created in the package's target directory.
+
 ## v0.5.1
 
 ### Changes
