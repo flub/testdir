@@ -1,6 +1,6 @@
 [package]
 name = "testdir"
-version = "0.6.0"
+version = "0.7.0"
 authors = ["Floris Bruynooghe <flub@devork.be>"]
 edition = "2021"
 description = "Semi-persistent, scoped test directories"

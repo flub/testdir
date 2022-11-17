@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.7.0
+
+- Migrated dependency to get ppid and executable names from psutil to
+  sysinfo, psutil has insufficient mac support.
+
 ## v0.6.0
 
 - Migrated dependecy to get ppid and executable names from heim to
