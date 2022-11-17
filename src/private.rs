@@ -11,8 +11,7 @@ use std::path::Path;
 
 // use heim::process::Pid;
 use once_cell::sync::Lazy;
-use psutil::process::Process;
-use psutil::Pid;
+use sysinfo::{Pid, ProcessExt, SystemExt};
 
 pub use cargo_metadata;
 
@@ -36,15 +35,23 @@ static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
 // assert!(pidfile.is_file());
 // ```
 fn cargo_pid() -> Option<Pid> {
-    let current = Process::current().ok()?;
-    let parent = current.parent().ok()??;
-    let parent_exe = parent.exe().ok()?;
+    let mut sys = sysinfo::System::new();
+    let pid = sysinfo::get_current_pid().ok()?;
+    let what = sysinfo::ProcessRefreshKind::new();
+    sys.refresh_process_specifics(pid, what);
+    let current = sys.process(pid)?;
+    let ppid = current.parent()?;
+    sys.refresh_process_specifics(ppid, what);
+    let parent = sys.process(ppid)?;
+    let parent_exe = parent.exe();
     let parent_file_name = parent_exe.file_name()?;
     if parent_file_name == OsStr::new("cargo") {
         Some(parent.pid())
     } else if parent_file_name == OsStr::new("rustdoc") {
-        let parent = parent.parent().ok()??;
-        let parent_exe = parent.exe().ok()?;
+        let ppid = parent.parent()?;
+        sys.refresh_process_specifics(ppid, what);
+        let parent = sys.process(ppid)?;
+        let parent_exe = parent.exe();
         let parent_file_name = parent_exe.file_name()?;
         if parent_file_name == OsStr::new("cargo") {
             Some(parent.pid())
