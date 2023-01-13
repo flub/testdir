@@ -78,7 +78,7 @@
 #[macro_export]
 macro_rules! testdir {
     () => {
-        testdir!(TestScope)
+        $crate::testdir!(TestScope)
     };
     ( TestScope ) => {{
         $crate::init_testdir!();

@@ -57,8 +57,8 @@ use std::num::NonZeroU8;
 use once_cell::sync::OnceCell;
 
 mod builder;
+mod macros;
 mod numbered_dir;
-mod testdir;
 
 #[doc(hidden)]
 pub mod private;
