@@ -25,6 +25,9 @@ There is also a symlink pointing to the most recent generation:
 target/testdir-current -> testdir-$N`
 ```
 
+Note however that on windows sometimes this can not be updated due to
+permissions, this symlink is a best-effort on windows.
+
 ## Example
 
 Even when executing this with `cargo test --jobs=1` these tests will

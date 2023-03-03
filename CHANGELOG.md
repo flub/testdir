@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7.2
+
+- Made removal of outdated -current symlink optional: this can often
+  fail on windows.  The symlink is now best effort.
+
+## v0.7.1
+
+- Fix testdir!() macro to call itself using $crate:: prefix so it does
+  not rely on the testdir module being imported.
+
 ## v0.7.0
 
 - Migrated dependency to get ppid and executable names from psutil to

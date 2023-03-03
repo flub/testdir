@@ -186,9 +186,8 @@ fn create_next_dir(dir: impl AsRef<Path>, base: &str, mut next_count: u16) -> Re
             Ok(_) => {
                 let current = dir.as_ref().join(format!("{}-current", base));
                 if current.exists() {
-                    fs::remove_file(&current).with_context(|| {
-                        format!("Failed to remove obsolete {}-current symlink", base)
-                    })?;
+                    // This can fail on windows, treat it as best-effort.
+                    fs::remove_file(&current).ok();
                 }
                 // Could be racing other processes, should not fail
                 symlink_dir(&path, &current).ok();
