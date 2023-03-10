@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.3
+
+- Fallback to directory of test binary if cargo-metadata is not
+  available.  This can be the case in some restricted environments,
+  like phones when using cargo-dinghy.
+
 ## v0.7.2
 
 - Made removal of outdated -current symlink optional: this can often

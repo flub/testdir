@@ -130,13 +130,21 @@ macro_rules! testdir {
 macro_rules! init_testdir {
     () => {{
         $crate::TESTDIR.get_or_init(move || {
-            let metadata = $crate::private::cargo_metadata::MetadataCommand::new()
-                .exec()
-                .expect("cargo metadata failed");
-            // let pkg_name = String::from(::std::env!("CARGO_PKG_NAME"));
+            let parent = match $crate::private::cargo_metadata::MetadataCommand::new().exec() {
+                Ok(metadata) => metadata.target_directory.into(),
+                Err(_) => {
+                    // In some environments cargo-metadata is not available,
+                    // e.g. cargo-dinghy.  Use the directory of test executable.
+                    let current_exe = ::std::env::current_exe().expect("no current exe");
+                    current_exe
+                        .parent()
+                        .expect("no parent dir for current exe")
+                        .into()
+                }
+            };
             let pkg_name = "testdir";
             let mut builder = $crate::NumberedDirBuilder::new(pkg_name.to_string());
-            builder.set_parent(metadata.target_directory.into());
+            builder.set_parent(parent);
             builder.reusefn($crate::private::reuse_cargo);
             let testdir = builder.create().expect("Failed to create testdir");
             $crate::private::create_cargo_pid_file(testdir.path());
