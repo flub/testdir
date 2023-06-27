@@ -72,7 +72,7 @@ fn cargo_pid() -> Option<Pid> {
 /// [`NumberedDir`]: crate::NumberedDir
 pub fn reuse_cargo(dir: &Path) -> bool {
     let file_name = dir.join(CARGO_PID_FILE_NAME);
-    if let Ok(content) = fs::read_to_string(&file_name) {
+    if let Ok(content) = fs::read_to_string(file_name) {
         if let Ok(read_cargo_pid) = content.parse::<Pid>() {
             if let Some(cargo_pid) = *CARGO_PID {
                 return read_cargo_pid == cargo_pid;
