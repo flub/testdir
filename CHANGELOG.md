@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.0
+
+- NumberedDir::create_subdir will no longer ensure to always create a
+  new subdirectory.  Now if it is called with the same argument again
+  the previously existing directory is reused.  This in particular
+  means that calling the testdir!() macro multiple times inside a test
+  will always give you back the same identical directory instead of a
+  different one each time.
+
 ## v0.7.3
 
 - Fallback to directory of test binary if cargo-metadata is not

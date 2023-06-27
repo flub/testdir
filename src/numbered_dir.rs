@@ -1,8 +1,8 @@
 //! The [`NumberedDir`] type and supporting code.
 
-use std::fs;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
+use std::{fs, io};
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink as symlink_dir;
@@ -85,19 +85,9 @@ impl NumberedDir {
         self.number
     }
 
-    /// Creates a new subdirecotry within this numbered directory.
+    /// Creates a subdirecotry within this numbered directory.
     ///
-    /// This function will always create a new subdirecotry, if such a directory already
-    /// exists the last component will get an incremental number suffix.
-    ///
-    /// # Limitations
-    ///
-    /// Only up to [`u16::MAX`] numbered suffixes are created so this is the maximum number
-    /// of "identically" named directories that can be created.  Creating so many
-    /// directories will become expensive however as the suffixes are linearly searched for
-    /// the next available suffix.  This is not meant for a high number of conflicting
-    /// subdirectories, if this is required ensure the `rel_path` passed in already avoids
-    /// conflicts.
+    /// If the subdirectory already exists nothing is done.
     ///
     /// There is no particular safety from malicious input, the numbered directory can be
     /// trivially escaped using the parent directory location: `../somewhere/else`.
@@ -109,12 +99,6 @@ impl NumberedDir {
                 rel_path.display()
             )));
         }
-        let file_name = rel_path.file_name().ok_or_else(|| {
-            Error::msg(format!(
-                "Subdir does not end in a filename: {}",
-                rel_path.display()
-            ))
-        })?;
 
         if let Some(parent) = rel_path.parent() {
             let parent_path = self.path.join(parent);
@@ -123,22 +107,14 @@ impl NumberedDir {
             })?;
         }
 
-        let mut full_path = self.path.join(rel_path);
-        for i in 0..u16::MAX {
-            match fs::create_dir(&full_path) {
-                Ok(_) => {
-                    return Ok(full_path);
-                }
-                Err(_) => {
-                    let mut new_file_name = file_name.to_os_string();
-                    new_file_name.push(format!("-{}", i));
-                    full_path.set_file_name(new_file_name);
-                }
-            }
+        let full_path = self.path.join(rel_path);
+        match fs::create_dir(&full_path) {
+            Ok(_) => Ok(full_path),
+            Err(err) if matches!(err.kind(), io::ErrorKind::AlreadyExists) => Ok(full_path),
+            Err(_) => Err(Error::msg(
+                "subdir conflict: all filename alternatives exhausted",
+            )),
         }
-        Err(Error::msg(
-            "subdir conflict: all filename alternatives exhausted",
-        ))
     }
 }
 
@@ -345,8 +321,7 @@ mod tests {
         assert!(sub.is_dir());
 
         let sub_0 = dir.create_subdir(Path::new("sub")).unwrap();
-        assert_eq!(sub_0, dir.path().join("sub-0"));
-        assert!(sub_0.is_dir());
+        assert_eq!(sub_0, sub);
     }
 
     #[test]
