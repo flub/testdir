@@ -1,5 +1,6 @@
 //! The [`NumberedDir`] type and supporting code.
 
+use std::io::ErrorKind;
 use std::num::NonZeroU8;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
@@ -137,8 +138,14 @@ fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u
             || (oldest_to_keep < oldest_to_delete
                 && (numdir.number < oldest_to_keep || numdir.number >= oldest_to_delete))
         {
-            fs::remove_dir_all(numdir.path())
-                .with_context(|| format!("Failed to remove {}", numdir.path().display()))?;
+            match fs::remove_dir_all(numdir.path()) {
+                Ok(_) => (),
+                Err(err) if err.kind() == ErrorKind::NotFound => (),
+                Err(err) => {
+                    return Err(err)
+                        .with_context(|| format!("Failed to remove {}", numdir.path().display()))
+                }
+            }
         }
     }
 
