@@ -9,7 +9,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
-// use heim::process::Pid;
 use once_cell::sync::Lazy;
 use sysinfo::{Pid, ProcessExt, SystemExt};
 
@@ -19,7 +18,6 @@ pub use cargo_metadata;
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
 /// Whether we are a cargo sub-process.
-// static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(|| smol::block_on(async { cargo_pid().await }));
 static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
 
 /// Returns the process ID of our parent Cargo process.
@@ -45,7 +43,7 @@ fn cargo_pid() -> Option<Pid> {
     let parent = sys.process(ppid)?;
     let parent_exe = parent.exe();
     let parent_file_name = parent_exe.file_name()?;
-    if parent_file_name == OsStr::new("cargo") {
+    if parent_file_name == OsStr::new("cargo") || parent_file_name == OsStr::new("cargo-nextest") {
         Some(parent.pid())
     } else if parent_file_name == OsStr::new("rustdoc") {
         let ppid = parent.parent()?;
