@@ -58,7 +58,7 @@ mod tests {
 
 Afterwards you can inspect the directories and they should look
 something like this:
-```sh
+```text
 $ tree target/
 target/
 +- testdir-0
