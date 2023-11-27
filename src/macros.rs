@@ -32,7 +32,7 @@
 ///
 /// * Directly provide the path using an expression, e.g. `testdir!("sub/dir").  This
 ///   expression will be passed to [`NumberedDir::create_subdir`] and thus must evaluate to
-///   something which implements `AsRef<Path>`, e.g. a simple `"sub/dir"` can be used or
+///   something which implements ``AsRef<Path>``, e.g. a simple `"sub/dir"` can be used or
 ///   something more advanced evaluating to a path, usually [`Path`] or [`PathBuf`].
 ///
 /// # Panics
