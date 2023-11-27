@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.1
+
+- When cleaning up old numbered directories if the entry is not found
+  this error is ignored.  This is possible if multiple cleanups are
+  racing each other.
+
 ## v0.8.0
 
 - NumberedDir::create_subdir will no longer ensure to always create a
