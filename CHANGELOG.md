@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.0
+
+- Support for cargo-nextest.
+
 ## v0.8.1
 
 - When cleaning up old numbered directories if the entry is not found
