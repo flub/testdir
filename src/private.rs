@@ -42,7 +42,7 @@ fn cargo_pid() -> Option<Pid> {
     sys.refresh_process_specifics(ppid, what);
     let parent = sys.process(ppid)?;
     let parent_exe = parent.exe();
-    let parent_file_name = parent_exe.file_name()?;
+    let parent_file_name = dbg!(parent_exe.file_name()?);
     if parent_file_name == OsStr::new("cargo") || parent_file_name == OsStr::new("cargo-nextest") {
         Some(parent.pid())
     } else if parent_file_name == OsStr::new("rustdoc") {
