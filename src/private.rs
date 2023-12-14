@@ -20,16 +20,16 @@ const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 /// Whether we are a cargo sub-process.
 static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
 
-#[cfg(target_family == "unix")]
+#[cfg(target_family = "unix")]
 const CARGO_NAME: &str = "cargo";
 
-#[cfg(target_family == "unix")]
+#[cfg(target_family = "unix")]
 const NEXTEST_NAME: &str = "cargo-nextest";
 
-#[cfg(target_family == "windows")]
+#[cfg(target_family = "windows")]
 const CARGO_NAME: &str = "cargo.exe";
 
-#[cfg(target_family == "windows")]
+#[cfg(target_family = "windows")]
 const NEXTEST_NAME: &str = "cargo-nextest.exe";
 
 /// Returns the process ID of our parent Cargo process.
