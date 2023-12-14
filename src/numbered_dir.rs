@@ -314,12 +314,13 @@ mod tests {
         assert!(dir_0.path().is_dir());
         assert!(dir_1.path().is_dir());
 
-        let current = fs::read_link(parent.path().join("base-current")).unwrap();
-
         // We know that on windows the first symlink probably didn't get removed, symlinks
         // are best-effort there.
         #[cfg(target_family = "unix")]
-        assert_eq!(dir_1.path(), current);
+        {
+            let current = fs::read_link(parent.path().join("base-current")).unwrap();
+            assert_eq!(dir_1.path(), current);
+        }
     }
 
     #[test]
