@@ -123,7 +123,6 @@ pub fn extract_test_name(module_path: &str) -> String {
 
 /// Extracts the name of the currently executing tests using [`backtrace`].
 pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
-    dbg!(module_path);
     for symbol in backtrace::Backtrace::new()
         .frames()
         .iter()
@@ -132,8 +131,8 @@ pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
         .filter_map(|x| x.name())
         .map(|x| x.to_string())
     {
-        dbg!(&symbol);
-        if let Some(symbol) = dbg!(symbol.strip_prefix(module_path)) {
+        &symbol;
+        if let Some(symbol) = symbol.strip_prefix(module_path) {
             if let Some(symbol) = symbol.strip_suffix("::{{closure}}") {
                 return symbol.to_string();
             } else {
@@ -142,7 +141,7 @@ pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
         }
     }
 
-    // We know that on windows doc tests fallthrough as the module_path is something like
+    // We know that on windows doc tests fall through as the module_path is something like
     // "rust_out" which is not very useful.  We'll have to just use something.
     String::from("unknown_test")
 }
