@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.9.1
+
+- Fix windows support up a bit.  Previously it would not detect the
+  correct cargo parent process and thus cycle through numbered
+  directories too fast.  Also allow not finding the test name since
+  doc tests on windows do not work.
+
 ## v0.9.0
 
 - Support for cargo-nextest.
