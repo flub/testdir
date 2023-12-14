@@ -123,6 +123,7 @@ pub fn extract_test_name(module_path: &str) -> String {
 
 /// Extracts the name of the currently executing tests using [`backtrace`].
 pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
+    dbg!(module_path);
     for symbol in backtrace::Backtrace::new()
         .frames()
         .iter()
