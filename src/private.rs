@@ -141,7 +141,10 @@ pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
             }
         }
     }
-    panic!("Cannot determine test name from backtrace");
+
+    // We know that on windows doc tests fallthrough as the module_path is something like
+    // "rust_out" which is not very useful.  We'll have to just use something.
+    String::from("unknown_test")
 }
 
 #[cfg(test)]
