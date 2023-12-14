@@ -20,6 +20,18 @@ const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 /// Whether we are a cargo sub-process.
 static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
 
+#[cfg(target_family == "unix")]
+const CARGO_NAME: &str = "cargo";
+
+#[cfg(target_family == "unix")]
+const NEXTEST_NAME: &str = "cargo-nextest";
+
+#[cfg(target_family == "windows")]
+const CARGO_NAME: &str = "cargo.exe";
+
+#[cfg(target_family == "windows")]
+const NEXTEST_NAME: &str = "cargo-nextest.exe";
+
 /// Returns the process ID of our parent Cargo process.
 ///
 /// If our parent process is not Cargo, `None` is returned.
@@ -43,7 +55,7 @@ fn cargo_pid() -> Option<Pid> {
     let parent = sys.process(ppid)?;
     let parent_exe = parent.exe();
     let parent_file_name = dbg!(parent_exe.file_name()?);
-    if parent_file_name == OsStr::new("cargo") || parent_file_name == OsStr::new("cargo-nextest") {
+    if parent_file_name == OsStr::new(CARGO_NAME) || parent_file_name == OsStr::new(NEXTEST_NAME) {
         Some(parent.pid())
     } else if parent_file_name == OsStr::new("rustdoc") {
         let ppid = parent.parent()?;
