@@ -2,7 +2,7 @@
 
 This crate aims to make it easier to use temporary directories in
 tests, primarily by calling the `testdir!()` macro somewhere in a test
-function.  The direcetories are structured per-scope and per-test and
+function.  The directories are structured per-scope and per-test and
 will be available for inspection after the test has finished.  On
 subsequent test runs older generations of test directories will be
 cleaned up.
