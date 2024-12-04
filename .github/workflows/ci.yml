@@ -47,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-      - uses: mozilla-actions/sccache-action@0.0.6
+      - uses: mozilla-actions/sccache-action@v0.0.6
       - name: cargo check
         run: |
           rm -f Cargo.lock
@@ -59,7 +59,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.MSRV }}
-      - uses: mozilla-actions/sccache-action@0.0.6
+      - uses: mozilla-actions/sccache-action@v0.0.6
       - name: Check MSRV
         run: |
           cargo +$MSRV check
