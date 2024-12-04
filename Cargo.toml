@@ -1,6 +1,6 @@
 [package]
 name = "testdir"
-version = "0.9.2"
+version = "0.9.3"
 authors = ["Floris Bruynooghe <flub@devork.be>"]
 edition = "2021"
 description = "Semi-persistent, scoped test directories"
@@ -10,8 +10,11 @@ license = "MIT OR Apache-2.0"
 keywords = ["test", "temp", "temporary", "directory"]
 categories = ["development-tools::testing", "filesystem"]
 
+# Sadly this also needs to be updated in .github/workflows/ci.yml
+rust-version = "1.76"
+
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.20"
 backtrace = "0.3.55"
 cargo_metadata = "0.14.0"
 once_cell = "1.5"
