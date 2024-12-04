@@ -14,7 +14,7 @@ categories = ["development-tools::testing", "filesystem"]
 rust-version = "1.76"
 
 [dependencies]
-anyhow = "1"
+anyhow = "1.0.20"
 backtrace = "0.3.55"
 cargo_metadata = "0.14.0"
 once_cell = "1.5"
