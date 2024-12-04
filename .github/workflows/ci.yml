@@ -53,7 +53,7 @@ jobs:
           rm -f Cargo.lock
           cargo +nightly check -Z minimal-versions
   msrv:
-    runs-on: ubuntu-lates
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
