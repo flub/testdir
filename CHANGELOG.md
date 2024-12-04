@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.9.2
+
+- Pin cargo-platform dependency so we do not exceed MSRV of 0.76.
+
 ## v0.9.1
 
 - Fix windows support up a bit.  Previously it would not detect the
