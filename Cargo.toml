@@ -10,6 +10,9 @@ license = "MIT OR Apache-2.0"
 keywords = ["test", "temp", "temporary", "directory"]
 categories = ["development-tools::testing", "filesystem"]
 
+# Sadly this also needs to be updated in .github/workflows/ci.yml
+rust-version = "1.76"
+
 [dependencies]
 anyhow = "1"
 backtrace = "0.3.55"
