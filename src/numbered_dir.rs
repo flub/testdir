@@ -354,7 +354,7 @@ mod tests {
 
         let dir0 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
         let dir1 = NumberedDir::create(parent.path(), "base", NonZeroU8::new(3).unwrap()).unwrap();
-        let dirs = vec![dir0, dir1];
+        let dirs = [dir0, dir1];
 
         for numdir in NumberedDir::iterate(parent.path(), "base").unwrap() {
             assert!(dirs.contains(&numdir));

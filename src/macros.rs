@@ -59,7 +59,7 @@
 ///
 /// The module path is valid in any scope, so can be used together with [once_cell] (or
 /// [lazy_static]) to share a common directory between different tests.
-/// ```
+/// ```no_run
 /// use std::path::PathBuf;
 /// use once_cell::sync::Lazy;
 /// use testdir::testdir;
