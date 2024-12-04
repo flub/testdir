@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.9.3
+
+- Specify an MSRV in Cargo.toml, checked in CI.
+- The minimal versions for dependencies are tweaked and now checked in CI.
+
 ## v0.9.2
 
 - Pin cargo-platform dependency so we do not exceed MSRV of 0.76.
