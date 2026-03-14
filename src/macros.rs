@@ -60,14 +60,14 @@
 /// ```
 /// These constructs can also be used in a doctest.
 ///
-/// The module path is valid in any scope, so can be used together with [once_cell] (or
-/// [lazy_static]) to share a common directory between different tests.
+/// The module path is valid in any scope, so can be used together with
+/// e.g. [`std::sync::LazyLock`] to share a common directory between different tests.
 /// ```no_run
+/// use std::sync::LazyLock;
 /// use std::path::PathBuf;
-/// use once_cell::sync::Lazy;
 /// use testdir::testdir;
 ///
-/// static TDIR: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
+/// static TDIR: LazyLock<PathBuf> = LazyLock::new(|| testdir!(ModuleScope));
 ///
 /// #[test]
 /// fn test_module_scope() {

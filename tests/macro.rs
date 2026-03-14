@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use testdir::testdir;
 
-static MOD_LEVEL: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
+static MOD_LEVEL: LazyLock<PathBuf> = LazyLock::new(|| testdir!(ModuleScope));
 
 #[test]
 fn test_macro() {
@@ -74,7 +74,7 @@ fn test_cargo_pid_created() {
 mod submodule {
     use super::*;
 
-    static SUB_MOD: Lazy<PathBuf> = Lazy::new(|| testdir!(ModuleScope));
+    static SUB_MOD: LazyLock<PathBuf> = LazyLock::new(|| testdir!(ModuleScope));
 
     #[test]
     fn test_test_scope() {
