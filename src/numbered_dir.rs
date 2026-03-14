@@ -143,7 +143,7 @@ fn remove_obsolete_dirs(dir: impl AsRef<Path>, base: &str, current: u16, keep: u
                 Err(err) if err.kind() == ErrorKind::NotFound => (),
                 Err(err) => {
                     return Err(err)
-                        .with_context(|| format!("Failed to remove {}", numdir.path().display()))
+                        .with_context(|| format!("Failed to remove {}", numdir.path().display()));
                 }
             }
         }
