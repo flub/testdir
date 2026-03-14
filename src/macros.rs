@@ -87,7 +87,9 @@ macro_rules! testdir {
         $crate::init_testdir!();
         let module_path = ::std::module_path!();
         let test_name = $crate::private::extract_test_name(&module_path);
-        let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join(&test_name);
+        let subdir_path =
+            ::std::path::Path::new(&module_path.replace("::", ::std::path::MAIN_SEPARATOR_STR))
+                .join(&test_name);
         $crate::with_testdir(move |tdir| {
             tdir.create_subdir(subdir_path)
                 .expect("Failed to create test-scoped sub-directory")
@@ -96,7 +98,9 @@ macro_rules! testdir {
     ( ModuleScope ) => {{
         $crate::init_testdir!();
         let module_path = ::std::module_path!();
-        let subdir_path = ::std::path::Path::new(&module_path.replace("::", "/")).join("mod");
+        let subdir_path =
+            ::std::path::Path::new(&module_path.replace("::", ::std::path::MAIN_SEPARATOR_STR))
+                .join("mod");
         $crate::with_testdir(move |tdir| {
             tdir.create_subdir(subdir_path)
                 .expect("Failed to create module-scoped sub-directory")
