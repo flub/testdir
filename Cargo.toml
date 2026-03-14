@@ -11,17 +11,15 @@ keywords = ["test", "temp", "temporary", "directory"]
 categories = ["development-tools::testing", "filesystem"]
 
 # Sadly this also needs to be updated in .github/workflows/ci.yml
-rust-version = "1.80"
+rust-version = "1.88"
 
 [dependencies]
 anyhow = "1.0.20"
 backtrace = "0.3.55"
+cargo-platform = "0.3"
 cargo_metadata = "0.23.0"
 sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 whoami = "2"
-
-# Force old version of cargo-platform before they bumped the MSRV
-cargo-platform = ">=0.1.2, <0.1.9"
 
 [dev-dependencies]
 tempfile = "3"
