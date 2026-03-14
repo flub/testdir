@@ -6,11 +6,12 @@
 //! stability and this will violate semvers.
 
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use anyhow::Result;
 use sysinfo::Pid;
 
 use crate::{NumberedDir, NumberedDirBuilder};
@@ -40,8 +41,15 @@ pub fn init_testdir() -> NumberedDir {
     let mut builder = NumberedDirBuilder::new(pkg_name.to_string());
     builder.set_parent(parent);
     builder.reusefn(reuse_cargo);
-    let testdir = builder.create().expect("Failed to create testdir");
-    create_cargo_pid_file(testdir.path());
+    let mut testdir = builder.create().expect("Failed to create testdir");
+    let mut count = 0;
+    while create_cargo_pid_file(testdir.path()).is_err() {
+        count += 1;
+        if count > 20 {
+            break;
+        }
+        testdir = builder.create().expect("Failed to create testdir");
+    }
     testdir
 }
 
@@ -94,14 +102,31 @@ pub(crate) fn reuse_cargo(dir: &Path) -> bool {
 
 /// Creates a file storing the Cargo PID if not yet present.
 ///
+/// # Returns
+///
+/// An error return indicates that the pid file was created by another process that was not
+/// part of our testrun. So this numbered dir should not be used.
+///
 /// # Panics
 ///
-/// If the PID file could not be created or written.
-pub(crate) fn create_cargo_pid_file(dir: &Path) {
-    if let Some(cargo_pid) = *CARGO_PID {
-        let file_name = dir.join(CARGO_PID_FILE_NAME);
-        if !file_name.exists() {
-            fs::write(&file_name, cargo_pid.to_string()).expect("Failed to write Cargo PID");
+/// If the PID file could not be created, written or read.
+pub(crate) fn create_cargo_pid_file(dir: &Path) -> Result<()> {
+    let cargo_pid = CARGO_PID
+        .map(|pid| pid.to_string())
+        .unwrap_or("failed to get cargo PID".to_string());
+    let file_name = dir.join(CARGO_PID_FILE_NAME);
+    match File::create_new(&file_name) {
+        Ok(_) => {
+            fs::write(&file_name, cargo_pid).expect("Failed to write cargo PID");
+            Ok(())
+        }
+        Err(_) => {
+            let contents = fs::read_to_string(&file_name).expect("Failed to read cargo-pid");
+            if cargo_pid == contents {
+                Ok(())
+            } else {
+                Err(anyhow::Error::msg("cargo PID does not match"))
+            }
         }
     }
 }

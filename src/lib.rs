@@ -104,8 +104,15 @@ where
     let test_dir = TESTDIR.get_or_init(|| {
         let mut builder = NumberedDirBuilder::new(String::from("init_testdir-not-called"));
         builder.reusefn(private::reuse_cargo);
-        let testdir = builder.create().expect("Failed to create testdir");
-        private::create_cargo_pid_file(testdir.path());
+        let mut testdir = builder.create().expect("Failed to create testdir");
+        let mut count = 0;
+        while private::create_cargo_pid_file(testdir.path()).is_err() {
+            count += 1;
+            if count > 20 {
+                break;
+            }
+            testdir = builder.create().expect("Failed to create testdir");
+        }
         testdir
     });
     func(test_dir)
