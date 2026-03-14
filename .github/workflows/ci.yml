@@ -9,7 +9,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MSRV: "1.76"
+  MSRV: "1.80"
   RUST_BACKTRACE: "1"
   RUSTFLAGS: "-Dwarnings"
   RUSTDOCFLAGS: "-Dwarnings"

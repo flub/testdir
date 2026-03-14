@@ -8,8 +8,8 @@
 use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use sysinfo::{Pid, ProcessExt, SystemExt};
 
 pub use cargo_metadata;
@@ -18,7 +18,7 @@ pub use cargo_metadata;
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
 
 /// Whether we are a cargo sub-process.
-static CARGO_PID: Lazy<Option<Pid>> = Lazy::new(cargo_pid);
+static CARGO_PID: LazyLock<Option<Pid>> = LazyLock::new(cargo_pid);
 
 #[cfg(target_family = "unix")]
 const CARGO_NAME: &str = "cargo";

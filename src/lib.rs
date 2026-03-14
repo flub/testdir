@@ -53,8 +53,7 @@
 #![warn(missing_docs, missing_debug_implementations, clippy::all)]
 
 use std::num::NonZeroU8;
-
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
 mod builder;
 mod macros;
@@ -77,7 +76,7 @@ pub const KEEP_DEFAULT: Option<NonZeroU8> = NonZeroU8::new(8);
 ///
 /// Do not use this directly, use [`init_testdir!`] to initialise this.
 #[doc(hidden)]
-pub static TESTDIR: OnceCell<NumberedDir> = OnceCell::new();
+pub static TESTDIR: OnceLock<NumberedDir> = OnceLock::new();
 
 /// Executes a function passing the global [`NumberedDir`] instance.
 ///
