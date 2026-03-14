@@ -9,6 +9,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use sysinfo::Pid;
 
@@ -73,13 +74,21 @@ fn cargo_target_dir() -> PathBuf {
 /// [`NumberedDir`]: crate::NumberedDir
 pub(crate) fn reuse_cargo(dir: &Path) -> bool {
     let file_name = dir.join(CARGO_PID_FILE_NAME);
-    if let Ok(content) = fs::read_to_string(file_name) {
-        if let Ok(read_cargo_pid) = content.parse::<Pid>() {
-            if let Some(cargo_pid) = *CARGO_PID {
-                return read_cargo_pid == cargo_pid;
-            }
+    let start = Instant::now();
+    while start.elapsed() <= Duration::from_millis(500) {
+        if let Some(read_cargo_pid) = fs::read_to_string(&file_name)
+            .ok()
+            .and_then(|content| content.parse::<Pid>().ok())
+        {
+            return Some(read_cargo_pid) == *CARGO_PID;
+        } else {
+            // Wen we encounter a directory that has no pidfile we assume some other process
+            // just created the directory and is about to write the pdifile. So we wait a
+            // little in the hope the pidfile appears.
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
+    // Give up, we'll create a new directory ourselves.
     false
 }
 
