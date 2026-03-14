@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Error, Result};
 
-use crate::{NumberedDir, KEEP_DEFAULT, ROOT_DEFAULT};
+use crate::{KEEP_DEFAULT, NumberedDir, ROOT_DEFAULT};
 
 /// Builder to create a [`NumberedDir`].
 ///
@@ -80,7 +80,11 @@ impl NumberedDirBuilder {
         if base.contains('/') || base.contains('\\') {
             panic!("base must not contain path separators");
         }
-        let root = format!("{}-of-{}", ROOT_DEFAULT, whoami::username());
+        let root = format!(
+            "{}-of-{}",
+            ROOT_DEFAULT,
+            whoami::username().unwrap_or("unknown".to_string())
+        );
         Self {
             parent: std::env::temp_dir().join(root),
             base,
@@ -110,7 +114,11 @@ impl NumberedDirBuilder {
     /// temporary directory location as the parent direcotry for the [`NumberedDir`].
     /// However it suffixes the username to the given `prefix` to use as *root*.
     pub fn user_root(&mut self, prefix: &str) -> &mut Self {
-        let root = format!("{}{}", prefix, whoami::username());
+        let root = format!(
+            "{}{}",
+            prefix,
+            whoami::username().unwrap_or("unknown".to_string())
+        );
         self.parent.set_file_name(root);
         self
     }
