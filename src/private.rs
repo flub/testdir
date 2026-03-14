@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use sysinfo::{Pid, ProcessExt, SystemExt};
+use sysinfo::Pid;
 
 pub use cargo_metadata;
 
@@ -45,25 +45,30 @@ const NEXTEST_NAME: &str = "cargo-nextest.exe";
 // assert!(pidfile.is_file());
 // ```
 fn cargo_pid() -> Option<Pid> {
-    let mut sys = sysinfo::System::new();
     let pid = sysinfo::get_current_pid().ok()?;
-    let what = sysinfo::ProcessRefreshKind::new();
-    sys.refresh_process_specifics(pid, what);
+
+    let mut sys = sysinfo::System::new();
+    let what = sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
+    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), false, what);
     let current = sys.process(pid)?;
     let ppid = current.parent()?;
-    sys.refresh_process_specifics(ppid, what);
+    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[ppid]), false, what);
     let parent = sys.process(ppid)?;
-    let parent_exe = parent.exe();
-    let parent_file_name = parent_exe.file_name()?;
-    if parent_file_name == OsStr::new(CARGO_NAME) || parent_file_name == OsStr::new(NEXTEST_NAME) {
+    let parent_name = parent
+        .exe()
+        .and_then(|exe| exe.file_name())
+        .unwrap_or_else(|| parent.name());
+    if parent_name == OsStr::new(CARGO_NAME) || parent_name == OsStr::new(NEXTEST_NAME) {
         Some(parent.pid())
-    } else if parent_file_name == OsStr::new("rustdoc") {
+    } else if parent_name == OsStr::new("rustdoc") {
         let ppid = parent.parent()?;
-        sys.refresh_process_specifics(ppid, what);
+        sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[ppid]), false, what);
         let parent = sys.process(ppid)?;
-        let parent_exe = parent.exe();
-        let parent_file_name = parent_exe.file_name()?;
-        if parent_file_name == OsStr::new("cargo") {
+        let parent_name = parent
+            .exe()
+            .and_then(|exe| exe.file_name())
+            .unwrap_or_else(|| parent.name());
+        if parent_name == OsStr::new("cargo") {
             Some(parent.pid())
         } else {
             None
