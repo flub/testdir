@@ -6,13 +6,15 @@
 //! stability and this will violate semvers.
 
 use std::ffi::OsStr;
-use std::fs;
-use std::path::Path;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
+use anyhow::Result;
 use sysinfo::Pid;
 
-pub use cargo_metadata;
+use crate::{NumberedDir, NumberedDirBuilder};
 
 /// The filename in which we store the Cargo PID: `cargo-pid`.
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
@@ -31,6 +33,103 @@ const CARGO_NAME: &str = "cargo.exe";
 
 #[cfg(target_family = "windows")]
 const NEXTEST_NAME: &str = "cargo-nextest.exe";
+
+/// Implementation of `crate::macros::init_testdir`.
+pub fn init_testdir() -> NumberedDir {
+    let parent = cargo_target_dir();
+    let pkg_name = "testdir";
+    let mut builder = NumberedDirBuilder::new(pkg_name.to_string());
+    builder.set_parent(parent);
+    builder.reusefn(reuse_cargo);
+    let mut testdir = builder.create().expect("Failed to create testdir");
+    let mut count = 0;
+    while create_cargo_pid_file(testdir.path()).is_err() {
+        count += 1;
+        if count > 20 {
+            break;
+        }
+        testdir = builder.create().expect("Failed to create testdir");
+    }
+    testdir
+}
+
+/// Returns the cargo target directory or a best guess.
+///
+/// This aims to return the cargo target directory. Though in some environments like
+/// cargo-dinghy cargo_metadata is not available. In those cases the directory of the test
+/// executable is used, which usually is somewhere in the target directory.
+fn cargo_target_dir() -> PathBuf {
+    match cargo_metadata::MetadataCommand::new().exec() {
+        Ok(metadata) => metadata.target_directory.into(),
+        Err(_) => {
+            // In some environments cargo-metadata is not available,
+            // e.g. cargo-dinghy.  Use the directory of test executable.
+            let current_exe = ::std::env::current_exe().expect("no current exe");
+            current_exe
+                .parent()
+                .expect("no parent dir for current exe")
+                .into()
+        }
+    }
+}
+
+/// Determines if a [`NumberedDir`] was created by the same cargo parent process.
+///
+/// Commands like `cargo test` run various tests in sub-processes (unittests, doctests,
+/// integration tests).  All of those subprocesses should re-use the same [`NumberedDir`].
+/// This function figures out whether the given directory is the correct one or not.
+///
+/// [`NumberedDir`]: crate::NumberedDir
+pub(crate) fn reuse_cargo(dir: &Path) -> bool {
+    let file_name = dir.join(CARGO_PID_FILE_NAME);
+    let start = Instant::now();
+    while start.elapsed() <= Duration::from_millis(500) {
+        if let Some(read_cargo_pid) = fs::read_to_string(&file_name)
+            .ok()
+            .and_then(|content| content.parse::<Pid>().ok())
+        {
+            return Some(read_cargo_pid) == *CARGO_PID;
+        } else {
+            // Wen we encounter a directory that has no pidfile we assume some other process
+            // just created the directory and is about to write the pdifile. So we wait a
+            // little in the hope the pidfile appears.
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    // Give up, we'll create a new directory ourselves.
+    false
+}
+
+/// Creates a file storing the Cargo PID if not yet present.
+///
+/// # Returns
+///
+/// An error return indicates that the pid file was created by another process that was not
+/// part of our testrun. So this numbered dir should not be used.
+///
+/// # Panics
+///
+/// If the PID file could not be created, written or read.
+pub(crate) fn create_cargo_pid_file(dir: &Path) -> Result<()> {
+    let cargo_pid = CARGO_PID
+        .map(|pid| pid.to_string())
+        .unwrap_or("failed to get cargo PID".to_string());
+    let file_name = dir.join(CARGO_PID_FILE_NAME);
+    match File::create_new(&file_name) {
+        Ok(_) => {
+            fs::write(&file_name, cargo_pid).expect("Failed to write cargo PID");
+            Ok(())
+        }
+        Err(_) => {
+            let contents = fs::read_to_string(&file_name).expect("Failed to read cargo-pid");
+            if cargo_pid == contents {
+                Ok(())
+            } else {
+                Err(anyhow::Error::msg("cargo PID does not match"))
+            }
+        }
+    }
+}
 
 /// Returns the process ID of our parent Cargo process.
 ///
@@ -78,39 +177,6 @@ fn cargo_pid() -> Option<Pid> {
     }
 }
 
-/// Determines if a [`NumberedDir`] was created by the same cargo parent process.
-///
-/// Commands like `cargo test` run various tests in sub-processes (unittests, doctests,
-/// integration tests).  All of those subprocesses should re-use the same [`NumberedDir`].
-/// This function figures out whether the given directory is the correct one or not.
-///
-/// [`NumberedDir`]: crate::NumberedDir
-pub fn reuse_cargo(dir: &Path) -> bool {
-    let file_name = dir.join(CARGO_PID_FILE_NAME);
-    if let Ok(content) = fs::read_to_string(file_name) {
-        if let Ok(read_cargo_pid) = content.parse::<Pid>() {
-            if let Some(cargo_pid) = *CARGO_PID {
-                return read_cargo_pid == cargo_pid;
-            }
-        }
-    }
-    false
-}
-
-/// Creates a file storing the Cargo PID if not yet present.
-///
-/// # Panics
-///
-/// If the PID file could not be created or written.
-pub fn create_cargo_pid_file(dir: &Path) {
-    if let Some(cargo_pid) = *CARGO_PID {
-        let file_name = dir.join(CARGO_PID_FILE_NAME);
-        if !file_name.exists() {
-            fs::write(&file_name, cargo_pid.to_string()).expect("Failed to write Cargo PID");
-        }
-    }
-}
-
 /// Extracts the name of the currently executing test.
 pub fn extract_test_name(module_path: &str) -> String {
     let mut name = std::thread::current()
@@ -127,7 +193,7 @@ pub fn extract_test_name(module_path: &str) -> String {
 }
 
 /// Extracts the name of the currently executing tests using [`backtrace`].
-pub fn extract_test_name_from_backtrace(module_path: &str) -> String {
+fn extract_test_name_from_backtrace(module_path: &str) -> String {
     for symbol in backtrace::Backtrace::new()
         .frames()
         .iter()
