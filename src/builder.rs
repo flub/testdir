@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Error, Result};
 
-use crate::{NumberedDir, KEEP_DEFAULT, ROOT_DEFAULT};
+use crate::{KEEP_DEFAULT, NumberedDir, ROOT_DEFAULT};
 
 /// Builder to create a [`NumberedDir`].
 ///
