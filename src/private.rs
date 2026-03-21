@@ -126,8 +126,10 @@ pub(crate) fn create_cargo_pid_file(dir: &Path) -> Result<()> {
             Ok(())
         }
         Err(_) => {
-            let contents = fs::read_to_string(&file_name).context("failed to read cargo-pid")?;
-            if cargo_pid == contents {
+            let read_pid = fs::read_to_string(&file_name)
+                .context("failed to read cargo-pid")?
+                .parse::<Pid>()?;
+            if Some(read_pid) == *CARGO_PID {
                 Ok(())
             } else {
                 Err(anyhow::Error::msg("cargo PID does not match"))
