@@ -5,12 +5,12 @@
 //! you do discover this module please do refrain from using it directly, there is no API
 //! stability and this will violate semvers.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use fslock::LockFile;
 use sysinfo::Pid;
 
@@ -31,11 +31,23 @@ const CARGO_NAME: &str = "cargo";
 #[cfg(target_family = "unix")]
 const NEXTEST_NAME: &str = "cargo-nextest";
 
+#[cfg(target_family = "unix")]
+const RUSTDOC_NAME: &str = "rustdoc";
+
+#[cfg(target_family = "unix")]
+const RUST_OUT_NAME: &str = "rust_out";
+
 #[cfg(target_family = "windows")]
 const CARGO_NAME: &str = "cargo.exe";
 
 #[cfg(target_family = "windows")]
 const NEXTEST_NAME: &str = "cargo-nextest.exe";
+
+#[cfg(target_family = "windows")]
+const RUSTDOC_NAME: &str = "rustdoc.exe";
+
+#[cfg(target_family = "windows")]
+const RUST_OUT_NAME: &str = "rust_out.exe";
 
 /// Implementation of `crate::macros::init_testdir`.
 pub fn init_testdir() -> NumberedDir {
@@ -152,36 +164,60 @@ pub(crate) fn create_cargo_pid_file(dir: &Path) -> Result<()> {
 // ```
 fn cargo_pid() -> Option<Pid> {
     let pid = sysinfo::get_current_pid().ok()?;
+    let (ppid, parent_name) = parent_process(pid).ok()?;
 
-    let mut sys = sysinfo::System::new();
-    let what = sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::OnlyIfNotSet);
-    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), false, what);
-    let current = sys.process(pid)?;
-    let ppid = current.parent()?;
-    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[ppid]), false, what);
-    let parent = sys.process(ppid)?;
-    let parent_name = parent
-        .exe()
-        .and_then(|exe| exe.file_name())
-        .unwrap_or_else(|| parent.name());
     if parent_name == OsStr::new(CARGO_NAME) || parent_name == OsStr::new(NEXTEST_NAME) {
-        Some(parent.pid())
-    } else if parent_name == OsStr::new("rustdoc") {
-        let ppid = parent.parent()?;
-        sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[ppid]), false, what);
-        let parent = sys.process(ppid)?;
-        let parent_name = parent
-            .exe()
-            .and_then(|exe| exe.file_name())
-            .unwrap_or_else(|| parent.name());
-        if parent_name == OsStr::new("cargo") {
-            Some(parent.pid())
+        // First parent is cargo or nextest directly for normal test runs.
+        Some(ppid)
+    } else if parent_name == OsStr::new(RUST_OUT_NAME) {
+        // Edition 2024 can have additional binary in between the test process and the
+        // doctest parent when it merges doc tests.
+        let (doctest_pid, doctest_name) = parent_process(ppid).ok()?;
+        if doctest_name == OsStr::new(RUSTDOC_NAME) {
+            // The parent of this should be cargo.
+            let (cargo_pid, cargo_name) = parent_process(doctest_pid).ok()?;
+            // Nextest does not run doc tests, only look for cargo itself.
+            if cargo_name == OsStr::new(CARGO_NAME) {
+                Some(cargo_pid)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else if parent_name == OsStr::new(RUSTDOC_NAME) {
+        // Before edition 2024 or if the doc test could not be merged we have doctest as
+        // parent directly.
+        let (cargo_pid, cargo_name) = parent_process(ppid).ok()?;
+        // Nextest does not run doc tests, only look for cargo itself.
+        if cargo_name == OsStr::new(CARGO_NAME) {
+            Some(cargo_pid)
         } else {
             None
         }
     } else {
         None
     }
+}
+
+/// Returns the pid and name of the parent process of `pid`.
+fn parent_process(pid: Pid) -> Result<(Pid, OsString)> {
+    let mut sys = sysinfo::System::new();
+    let what = sysinfo::ProcessRefreshKind::nothing().with_exe(sysinfo::UpdateKind::Always);
+
+    // Find the parent pid
+    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[pid]), false, what);
+    let process = sys.process(pid).ok_or(anyhow!("failed process fetch"))?;
+    let ppid = process.parent().ok_or(anyhow!("no parent process"))?;
+
+    // Find the parent name
+    sys.refresh_processes_specifics(sysinfo::ProcessesToUpdate::Some(&[ppid]), false, what);
+    let parent = sys.process(ppid).ok_or(anyhow!("failed parent fetch"))?;
+    let parent_name = parent
+        .exe()
+        .and_then(|exe| exe.file_name())
+        .unwrap_or_else(|| parent.name());
+    Ok((ppid, parent_name.to_os_string()))
 }
 
 /// Extracts the name of the currently executing test.
