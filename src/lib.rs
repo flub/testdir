@@ -119,3 +119,44 @@ where
     });
     func(test_dir)
 }
+
+#[cfg(test)]
+mod test_rstests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn test_1(#[case] _num: u8) {
+        let dir = testdir!();
+        println!("Created tmp_dir {}", dir.display());
+        let mut parts = dir.components();
+        match parts.next_back().map(|c| c.as_os_str().to_str().unwrap()) {
+            Some("case_1") | Some("case_2") => (),
+            _ => panic!("wrong case directory"),
+        }
+        match parts.next_back().map(|c| c.as_os_str().to_str().unwrap()) {
+            Some("test_1") => (),
+            _ => panic!("wrong test directory"),
+        }
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn test_2(#[case] _num: u8) {
+        let dir = testdir!();
+        println!("Created tmp_dir {}", dir.display());
+        let mut parts = dir.components();
+        match parts.next_back().map(|c| c.as_os_str().to_str().unwrap()) {
+            Some("case_1") | Some("case_2") => (),
+            _ => panic!("wrong case directory"),
+        }
+        match parts.next_back().map(|c| c.as_os_str().to_str().unwrap()) {
+            Some("test_2") => (),
+            _ => panic!("wrong test directory"),
+        }
+    }
+}
