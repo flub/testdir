@@ -18,6 +18,7 @@ anyhow = "1.0.20"
 backtrace = "0.3.55"
 cargo-platform = "0.3"
 cargo_metadata = "0.23.0"
+fslock = "0.2.1"
 sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 whoami = "2"
 

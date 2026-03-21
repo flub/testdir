@@ -107,6 +107,8 @@ where
         let mut testdir = builder.create().expect("Failed to create testdir");
         let mut count = 0;
         while private::create_cargo_pid_file(testdir.path()).is_err() {
+            // The directory was claimed by another process that was racing us and it was
+            // part of a separate testrun. Try to create a new one.
             count += 1;
             if count > 20 {
                 break;
