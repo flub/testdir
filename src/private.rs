@@ -186,15 +186,19 @@ fn cargo_pid() -> Option<Pid> {
 pub fn extract_test_name(module_path: &str) -> String {
     let mut name = std::thread::current()
         .name()
-        .expect("Test thread has no name, can not find test name")
+        .unwrap_or_default()
         .to_string();
     if name == "main" {
         name = extract_test_name_from_backtrace(module_path);
     }
-    if let Some(tail) = name.rsplit("::").next() {
+    if let Some((_head, tail)) = name.split_once("::") {
+        // The test name usually starts with the module name, so skip that.
         name = tail.to_string();
     }
-    name
+    // When using rstest the test name still contains multiple module paths entries, they
+    // are named "test_name::case_name". So we turn the name into several path entries:
+    // "test_name/case_name".
+    name.replace("::", ::std::path::MAIN_SEPARATOR_STR)
 }
 
 /// Extracts the name of the currently executing tests using [`backtrace`].
