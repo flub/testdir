@@ -9,15 +9,18 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use fslock::LockFile;
 use sysinfo::Pid;
 
 use crate::{NumberedDir, NumberedDirBuilder};
 
 /// The filename in which we store the Cargo PID: `cargo-pid`.
 const CARGO_PID_FILE_NAME: &str = "cargo-pid";
+
+/// The lockfile for creating the cargo PID file.
+const CARGO_PID_LOCKFILE: &str = "cargo-pid.lock";
 
 /// Whether we are a cargo sub-process.
 static CARGO_PID: LazyLock<Option<Pid>> = LazyLock::new(cargo_pid);
@@ -82,46 +85,48 @@ fn cargo_target_dir() -> PathBuf {
 /// [`NumberedDir`]: crate::NumberedDir
 pub(crate) fn reuse_cargo(dir: &Path) -> bool {
     let file_name = dir.join(CARGO_PID_FILE_NAME);
-    let start = Instant::now();
-    while start.elapsed() <= Duration::from_millis(500) {
-        if let Some(read_cargo_pid) = fs::read_to_string(&file_name)
-            .ok()
-            .and_then(|content| content.parse::<Pid>().ok())
-        {
-            return Some(read_cargo_pid) == *CARGO_PID;
-        } else {
-            // Wen we encounter a directory that has no pidfile we assume some other process
-            // just created the directory and is about to write the pdifile. So we wait a
-            // little in the hope the pidfile appears.
-            std::thread::sleep(Duration::from_millis(5));
-        }
+
+    // Fast-path, just read the pidfile
+    if let Some(read_cargo_pid) = fs::read_to_string(&file_name)
+        .ok()
+        .and_then(|content| content.parse::<Pid>().ok())
+    {
+        return Some(read_cargo_pid) == *CARGO_PID;
     }
-    // Give up, we'll create a new directory ourselves.
-    false
+
+    // Slow path, try and claim this directory for us. We are probably racing several
+    // processes creating the next directory. Creating the pidfile uses a lockfile to make
+    // sure only one process creates the pidfile.
+    create_cargo_pid_file(dir).is_ok()
 }
 
 /// Creates a file storing the Cargo PID if not yet present.
+///
+/// Uses a lockfile to make sure only one process is writing the file at once. If the
+/// pidfile was being written by another process at the same time and the PID matches it is
+/// treated as a successful write.
 ///
 /// # Returns
 ///
 /// An error return indicates that the pid file was created by another process that was not
 /// part of our testrun. So this numbered dir should not be used.
-///
-/// # Panics
-///
-/// If the PID file could not be created, written or read.
 pub(crate) fn create_cargo_pid_file(dir: &Path) -> Result<()> {
     let cargo_pid = CARGO_PID
         .map(|pid| pid.to_string())
         .unwrap_or("failed to get cargo PID".to_string());
+
+    // Lock the lockfile, unlocks when handle is dropped.
+    let mut lockfile = LockFile::open(&dir.join(CARGO_PID_LOCKFILE))?;
+    lockfile.lock()?;
+
     let file_name = dir.join(CARGO_PID_FILE_NAME);
     match File::create_new(&file_name) {
         Ok(_) => {
-            fs::write(&file_name, cargo_pid).expect("Failed to write cargo PID");
+            fs::write(&file_name, cargo_pid).context("failed to write cargo-pid")?;
             Ok(())
         }
         Err(_) => {
-            let contents = fs::read_to_string(&file_name).expect("Failed to read cargo-pid");
+            let contents = fs::read_to_string(&file_name).context("failed to read cargo-pid")?;
             if cargo_pid == contents {
                 Ok(())
             } else {
