@@ -70,6 +70,17 @@ target/
 +- testdir-current -> testdir-0
 ```
 
+## Environment variables
+
+- **`RUST_TESTDIR`**: Override the test directory location. When set,
+  this path is used directly as the testdir root instead of
+  `target/testdir-$N`. No numbered subdirectories or cleanup are
+  applied. Test subdirectories are created inside it as usual:
+  ```
+  RUST_TESTDIR=/tmp/my-tests cargo test
+  # creates /tmp/my-tests/module/path/test_name
+  ```
+
 ## Feedback and contributing
 
 The code lives in a git repository at https://github.com/flub/testdir

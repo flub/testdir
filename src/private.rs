@@ -49,8 +49,14 @@ const RUSTDOC_NAME: &str = "rustdoc.exe";
 #[cfg(target_family = "windows")]
 const RUST_OUT_NAME: &str = "rust_out.exe";
 
+/// The environment variable to override the testdir directory.
+const RUST_TESTDIR_ENV: &str = "RUST_TESTDIR";
+
 /// Implementation of `crate::macros::init_testdir`.
 pub fn init_testdir() -> NumberedDir {
+    if let Some(val) = std::env::var_os(RUST_TESTDIR_ENV) {
+        return NumberedDir::from_path(PathBuf::from(val)).expect("Failed to create RUST_TESTDIR");
+    }
     let parent = cargo_target_dir();
     let pkg_name = "testdir";
     let mut builder = NumberedDirBuilder::new(pkg_name.to_string());

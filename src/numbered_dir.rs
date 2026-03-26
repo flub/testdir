@@ -30,6 +30,20 @@ pub struct NumberedDir {
 }
 
 impl NumberedDir {
+    /// Creates a [`NumberedDir`] wrapping an existing directory path.
+    ///
+    /// This creates the directory if it does not exist yet but does not apply any numbering
+    /// or cleanup logic.  This is useful when the directory location is externally specified,
+    /// e.g. via an environment variable.
+    pub(crate) fn from_path(path: PathBuf) -> Result<Self> {
+        fs::create_dir_all(&path).context("Could not create directory")?;
+        Ok(Self {
+            path,
+            base: String::new(),
+            number: 0,
+        })
+    }
+
     /// Creates the next sequential numbered directory.
     ///
     /// The directory will be created inside `parent` and will start with the name given in

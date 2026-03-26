@@ -35,6 +35,14 @@
 //! a `testdir-current` symlink is created to the most recent suffix created.  Only the 8
 //! most recent directories are kept so that this does not keep growing forever.
 //!
+//! Set the `RUST_TESTDIR` environment variable to use a specific directory instead of
+//! `target/testdir-$N`.  When set, the path is used directly as the testdir root with no
+//! numbering or cleanup:
+//!
+//! ```sh
+//! RUST_TESTDIR=/tmp/my-tests cargo test
+//! ```
+//!
 //! Inside the numbered directory you will find a directory structure resembling your
 //! crate's modules structure.  For example if the above tests are in `lib.rs` of a crate
 //! called `mycrate`, than on my UNIX system it looks like this:
